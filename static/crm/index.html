@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Tuyển sinh — UFM Sau đại học</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="crm.css">
+</head>
+<body>
+
+<!-- ═══ LOGIN SCREEN ═══ -->
+<div id="loginScreen" class="login-screen">
+    <div class="login-card">
+        <div class="login-logo">🎓</div>
+        <h1>CRM Tuyển sinh</h1>
+        <p>Khoa Sau đại học — ĐH Tài chính Marketing</p>
+        <form id="loginForm">
+            <input type="password" id="loginPassword" placeholder="Nhập mật khẩu CRM" autocomplete="off" required>
+            <button type="submit">Đăng nhập</button>
+            <p id="loginError" class="error-text" style="display:none">Sai mật khẩu</p>
+        </form>
+    </div>
+</div>
+
+<!-- ═══ MAIN APP ═══ -->
+<div id="mainApp" class="main-app" style="display:none">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <span class="logo-icon">🎓</span>
+            <div>
+                <strong>CRM UFM</strong>
+                <small>Sau đại học</small>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item active" data-page="dashboard">
+                <span class="nav-icon">📊</span> Tổng quan
+            </a>
+            <a href="#" class="nav-item" data-page="leads">
+                <span class="nav-icon">👥</span> Học viên
+            </a>
+            <a href="#" class="nav-item" data-page="export">
+                <span class="nav-icon">📥</span> Export
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <button id="logoutBtn" class="logout-btn">🚪 Đăng xuất</button>
+        </div>
+    </aside>
+
+    <!-- CONTENT -->
+    <main class="content">
+
+        <!-- ═══ PAGE: DASHBOARD ═══ -->
+        <section id="pageDashboard" class="page active">
+            <h2 class="page-title">📊 Tổng quan tuyển sinh</h2>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-value" id="kpiTotal">0</div>
+                    <div class="kpi-label">Tổng leads</div>
+                    <div class="kpi-sub" id="kpiNewToday">+0 hôm nay</div>
+                </div>
+                <div class="kpi-card hot">
+                    <div class="kpi-value" id="kpiHot">0</div>
+                    <div class="kpi-label">🔥 Hot Leads (A)</div>
+                    <div class="kpi-sub">Cần liên hệ ngay</div>
+                </div>
+                <div class="kpi-card interested">
+                    <div class="kpi-value" id="kpiInterested">0</div>
+                    <div class="kpi-label">⭐ Quan tâm (B)</div>
+                    <div class="kpi-sub">Theo dõi tiếp</div>
+                </div>
+                <div class="kpi-card enrolled">
+                    <div class="kpi-value" id="kpiEnrolled">0</div>
+                    <div class="kpi-label">✅ Đã đăng ký</div>
+                    <div class="kpi-sub">Nộp hồ sơ</div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3>Leads mới theo ngày</h3>
+                    <canvas id="chartDaily"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3>Phân bố Grade</h3>
+                    <canvas id="chartGrade"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card full-width">
+                <h3>Top ngành được quan tâm</h3>
+                <canvas id="chartNganh"></canvas>
+            </div>
+
+            <div class="section-card">
+                <h3>🔥 Hot Leads cần liên hệ</h3>
+                <table class="data-table" id="hotLeadsTable">
+                    <thead>
+                        <tr>
+                            <th>Họ tên</th><th>Score</th><th>Ngành QT</th><th>Liên hệ</th><th>Chat (phút)</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <p id="noHotLeads" class="empty-text" style="display:none">Chưa có hot lead nào 🎉</p>
+            </div>
+        </section>
+
+        <!-- ═══ PAGE: LEADS ═══ -->
+        <section id="pageLeads" class="page">
+            <h2 class="page-title">👥 Danh sách học viên</h2>
+
+            <div class="filter-bar">
+                <input type="text" id="filterSearch" placeholder="🔍 Tìm tên, SĐT, email...">
+                <select id="filterGrade">
+                    <option value="">Tất cả Grade</option>
+                    <option value="A">🔥 Grade A</option>
+                    <option value="B">⭐ Grade B</option>
+                    <option value="C">💡 Grade C</option>
+                    <option value="D">❄️ Grade D</option>
+                </select>
+                <select id="filterStatus">
+                    <option value="">Tất cả Status</option>
+                    <option value="new">Mới</option>
+                    <option value="hot_lead">Hot Lead</option>
+                    <option value="interested">Quan tâm</option>
+                    <option value="follow_up">Follow up</option>
+                    <option value="enrolled">Đã đăng ký</option>
+                    <option value="lost">Bỏ qua</option>
+                </select>
+                <button id="btnExportCsv" class="btn-export">📥 Export CSV</button>
+            </div>
+
+            <div class="table-wrapper">
+                <table class="data-table" id="leadsTable">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Họ tên</th><th>Tuổi</th><th>Ngành QT</th>
+                            <th>Score</th><th>Xác suất</th><th>Grade</th>
+                            <th>Liên hệ</th><th>Chat</th><th>Status</th><th>Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div class="pagination" id="pagination"></div>
+        </section>
+
+        <!-- ═══ PAGE: EXPORT ═══ -->
+        <section id="pageExport" class="page">
+            <h2 class="page-title">📥 Export & Báo cáo</h2>
+            <div class="export-grid">
+                <div class="export-card" onclick="CRM.exportCSV()">
+                    <span class="export-icon">📋</span>
+                    <h4>Tất cả Leads</h4>
+                    <p>Tải CSV toàn bộ danh sách</p>
+                </div>
+                <div class="export-card" onclick="CRM.exportCSV('A')">
+                    <span class="export-icon">🔥</span>
+                    <h4>Hot Leads (A)</h4>
+                    <p>Chỉ leads tiềm năng cao</p>
+                </div>
+                <div class="export-card" onclick="CRM.exportCSV(null, 'enrolled')">
+                    <span class="export-icon">✅</span>
+                    <h4>Đã đăng ký</h4>
+                    <p>Leads đã nộp hồ sơ</p>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- ═══ LEAD DETAIL MODAL ═══ -->
+<div id="leadModal" class="modal" style="display:none">
+    <div class="modal-overlay" onclick="CRM.closeModal()"></div>
+    <div class="modal-content">
+        <button class="modal-close" onclick="CRM.closeModal()">✕</button>
+
+        <div class="modal-header">
+            <h2 id="modalName">—</h2>
+            <div class="modal-badges">
+                <span class="badge" id="modalGrade"></span>
+                <span class="badge" id="modalStatus"></span>
+            </div>
+        </div>
+
+        <!-- Info -->
+        <div class="detail-grid">
+            <div class="detail-item"><label>Tuổi</label><span id="modalAge">—</span></div>
+            <div class="detail-item"><label>Trình độ</label><span id="modalEdu">—</span></div>
+            <div class="detail-item"><label>Liên hệ</label><span id="modalContact">—</span></div>
+            <div class="detail-item"><label>Ngày đăng ký</label><span id="modalDate">—</span></div>
+        </div>
+
+        <!-- Score -->
+        <div class="score-section">
+            <div class="score-circle-wrap">
+                <div class="score-circle" id="modalScoreCircle">
+                    <span id="modalScore">0</span>
+                </div>
+                <div class="score-meta">
+                    <p>Xác suất: <strong id="modalProb">0%</strong></p>
+                </div>
+            </div>
+            <div class="breakdown-columns" id="modalBreakdown"></div>
+        </div>
+
+        <!-- AI Analysis -->
+        <div class="ai-section" id="aiSection" style="display:none">
+            <h3>💡 Phân tích AI</h3>
+            <div class="ai-card">
+                <p id="aiNhanXet"></p>
+                <p id="aiFollowUp"></p>
+                <p id="aiRaoCan"></p>
+            </div>
+        </div>
+
+        <!-- Chat Stats -->
+        <div class="chat-stats">
+            <span>💬 <strong id="modalMsgCount">0</strong> tin nhắn</span>
+            <span>⏱️ <strong id="modalChatTime">0</strong> phút</span>
+            <span>📚 Ngành: <strong id="modalNganh">—</strong></span>
+        </div>
+
+        <!-- CRM Actions -->
+        <div class="actions-section">
+            <h3>📝 CRM Actions</h3>
+            <div class="action-row">
+                <select id="actionStatus">
+                    <option value="">Đổi Status...</option>
+                    <option value="new">Mới</option>
+                    <option value="hot_lead">Hot Lead</option>
+                    <option value="interested">Quan tâm</option>
+                    <option value="follow_up">Follow up</option>
+                    <option value="enrolled">Đã đăng ký</option>
+                    <option value="lost">Bỏ qua</option>
+                </select>
+                <input type="text" id="actionAssignee" placeholder="Assign cho...">
+                <button onclick="CRM.saveActions()" class="btn-save">💾 Lưu</button>
+            </div>
+            <div class="note-section">
+                <textarea id="noteContent" placeholder="Thêm ghi chú..." rows="2"></textarea>
+                <button onclick="CRM.addNote()" class="btn-note">📝 Thêm ghi chú</button>
+            </div>
+            <div id="notesList" class="notes-timeline"></div>
+        </div>
+    </div>
+</div>
+
+<script src="crm.js"></script>
+</body>
+</html>

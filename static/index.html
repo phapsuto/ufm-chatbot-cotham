@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cô giáo Thắm — Tư vấn Sau đại học UFM</title>
+  <meta name="description" content="Trợ lý tư vấn tuyển sinh Sau đại học Trường Đại học Tài chính - Marketing UFM">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <!-- Background blobs -->
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- ONBOARDING GATE — Hiển thị đầu tiên    -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="onboarding-screen" class="onboarding-screen">
+    <div class="onboarding-container">
+      <!-- Stepper -->
+      <div class="stepper">
+        <div class="step active" data-step="1"><span>1</span> Chào hỏi</div>
+        <div class="step-line"></div>
+        <div class="step" data-step="2"><span>2</span> Thông tin</div>
+        <div class="step-line"></div>
+        <div class="step" data-step="3"><span>3</span> Liên hệ</div>
+      </div>
+
+      <!-- Step 1: Chào hỏi + Consent -->
+      <div class="onboard-step" id="ob-step-1" style="display:block">
+        <div class="ob-header">
+          <div class="ob-avatar">👩‍🏫</div>
+          <h2>Xin chào! Cô là Cô giáo Thắm 👋</h2>
+          <p>Cô hỗ trợ anh/chị/em tìm hiểu và đăng ký chương trình Sau đại học tại UFM. Trước khi bắt đầu, cô cần xác nhận một số thông tin cơ bản nhé.</p>
+        </div>
+        <div class="privacy-box">
+          <div class="privacy-icon">🔒</div>
+          <h3>Cam kết bảo mật thông tin</h3>
+          <p>Thông tin bạn cung cấp chỉ được sử dụng cho mục đích tư vấn tuyển sinh và được lưu trữ bảo mật trên hệ thống của Khoa Sau Đại học UFM. Thông tin sẽ không được chia sẻ với bên thứ ba ngoài nhà trường. Bạn có quyền yêu cầu xóa thông tin bất kỳ lúc nào bằng cách liên hệ trực tiếp nhà trường.</p>
+          <p class="privacy-note">Bằng cách tiếp tục, bạn đồng ý cho hệ thống thu thập và xử lý thông tin theo mục đích trên.</p>
+        </div>
+        <label class="consent-label">
+          <input type="checkbox" id="consent-check" onchange="toggleStep1Next()">
+          <span class="checkmark"></span>
+          <span>Tôi đã đọc và đồng ý với chính sách bảo mật thông tin</span>
+        </label>
+        <div class="ob-actions">
+          <button class="ob-btn primary" id="step1-next" disabled onclick="goToStep(2)">Tiếp tục →</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Thông tin cá nhân -->
+      <div class="onboard-step" id="ob-step-2" style="display:none">
+        <h2>📝 Thông tin cơ bản</h2>
+        <p class="ob-desc">Giúp Cô Thắm tư vấn phù hợp hơn với nhu cầu của bạn.</p>
+        <div class="ob-form">
+          <div class="form-group">
+            <label for="ob-name">Họ và tên đầy đủ <span class="required">*</span></label>
+            <input type="text" id="ob-name" placeholder="Ví dụ: Nguyễn Văn An" required>
+            <div class="field-error" id="err-name"></div>
+          </div>
+          <div class="form-group">
+            <label for="ob-birth">Năm sinh <span class="required">*</span></label>
+            <input type="number" id="ob-birth" placeholder="Ví dụ: 1990" min="1950" max="2010" required>
+            <div class="field-error" id="err-birth"></div>
+          </div>
+          <div class="form-group">
+            <label for="ob-edu">Trình độ học vấn hiện tại <span class="required">*</span></label>
+            <select id="ob-edu">
+              <option value="">-- Chọn trình độ --</option>
+              <option value="dai_hoc">Đại học (đang học hoặc đã tốt nghiệp)</option>
+              <option value="sau_dai_hoc">Thạc sĩ (đang học hoặc đã tốt nghiệp)</option>
+              <option value="cao_dang">Cao đẳng hoặc khác</option>
+            </select>
+            <div class="field-error" id="err-edu"></div>
+          </div>
+          <div class="form-group">
+            <label for="ob-edu-detail">Tên trường & ngành tốt nghiệp <span class="optional">(không bắt buộc)</span></label>
+            <textarea id="ob-edu-detail" rows="2" placeholder="Ví dụ: ĐH Tài chính Marketing - Ngành Kế toán"></textarea>
+          </div>
+        </div>
+        <div class="ob-actions">
+          <button class="ob-btn secondary" onclick="goToStep(1)">← Quay lại</button>
+          <button class="ob-btn primary" onclick="validateAndGoStep3()">Tiếp tục →</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Liên hệ + Xác nhận -->
+      <div class="onboard-step" id="ob-step-3" style="display:none">
+        <h2>📞 Thông tin liên hệ</h2>
+        <p class="ob-desc">Cô cần email hoặc số điện thoại để trường có thể hỗ trợ bạn khi cần.</p>
+        <div class="ob-form">
+          <div class="form-group">
+            <label for="ob-contact">Email hoặc Số điện thoại <span class="required">*</span></label>
+            <input type="text" id="ob-contact" placeholder="Ví dụ: 0901234567 hoặc email@gmail.com" required>
+            <div class="field-error" id="err-contact"></div>
+          </div>
+        </div>
+
+        <!-- Summary card -->
+        <div class="summary-card" id="summary-card">
+          <h3>📋 Tóm tắt thông tin</h3>
+          <div class="summary-row"><span>Họ tên:</span> <span id="sum-name">-</span></div>
+          <div class="summary-row"><span>Năm sinh:</span> <span id="sum-birth">-</span></div>
+          <div class="summary-row"><span>Trình độ:</span> <span id="sum-edu">-</span></div>
+          <div class="summary-row"><span>Liên hệ:</span> <span id="sum-contact">-</span></div>
+        </div>
+
+        <div class="ob-actions">
+          <button class="ob-btn secondary" onclick="goToStep(2)">← Quay lại</button>
+          <button class="ob-btn primary cta-btn" id="submit-ob" onclick="submitOnboarding()">Bắt đầu chat với Cô Thắm 🎓</button>
+        </div>
+        <div class="field-error center-error" id="err-submit"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- CHAT SCREEN — Hiển thị sau onboarding   -->
+  <!-- ═══════════════════════════════════════ -->
+  <div id="chat-screen" style="display:none">
+    <!-- Mobile overlay -->
+    <div class="overlay" onclick="closeSidebar()"></div>
+
+    <div class="app-container">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-avatar">👩‍🏫</div>
+          <div>
+            <h2>Cô giáo Thắm</h2>
+            <p>Sau Đại học UFM</p>
+          </div>
+        </div>
+        <nav class="sidebar-nav">
+          <button class="sidebar-item" onclick="askQuestion('Trường có những ngành thạc sĩ nào?'); closeSidebar()">
+            <span class="icon">📚</span> Chương trình Thạc sĩ
+          </button>
+          <button class="sidebar-item" onclick="askQuestion('Chương trình tiến sĩ gồm những ngành gì?'); closeSidebar()">
+            <span class="icon">🎓</span> Chương trình Tiến sĩ
+          </button>
+          <button class="sidebar-item" onclick="askQuestion('Học phí sau đại học bao nhiêu?'); closeSidebar()">
+            <span class="icon">💰</span> Học phí & Học bổng
+          </button>
+          <button class="sidebar-item" onclick="askQuestion('Điều kiện đầu vào thạc sĩ?'); closeSidebar()">
+            <span class="icon">📋</span> Điều kiện đầu vào
+          </button>
+          <button class="sidebar-item" onclick="askQuestion('Hồ sơ tuyển sinh cần chuẩn bị gì?'); closeSidebar()">
+            <span class="icon">📁</span> Hồ sơ tuyển sinh
+          </button>
+          <button class="sidebar-item" onclick="askQuestion('Tôi muốn đăng ký nhập học'); closeSidebar()">
+            <span class="icon">✍️</span> Đăng ký nhập học
+          </button>
+          <button class="sidebar-item" onclick="askQuestion('Tôi cần liên hệ tư vấn viên'); closeSidebar()">
+            <span class="icon">📞</span> Kết nối tư vấn viên
+          </button>
+        </nav>
+        <div class="sidebar-footer">Dữ liệu từ daotaosdh.ufm.edu.vn</div>
+      </aside>
+
+      <!-- Chat Main -->
+      <main class="chat-main">
+        <!-- Header -->
+        <header class="chat-header">
+          <div class="header-left">
+            <button class="header-btn menu-btn" onclick="toggleSidebar()">☰</button>
+            <div class="header-avatar">
+              👩‍🏫
+              <div class="status-dot"></div>
+            </div>
+            <div class="header-info">
+              <h1>Cô giáo Thắm</h1>
+              <p>Trợ lý tư vấn Sau đại học UFM</p>
+            </div>
+          </div>
+          <div class="header-right">
+            <button class="header-btn" onclick="clearChat()">🗑️ Mới</button>
+          </div>
+        </header>
+
+        <!-- Chat Area -->
+        <div class="chat-area" id="chat-area">
+          <!-- Welcome is injected by JS after onboarding -->
+        </div>
+
+        <!-- Input -->
+        <div class="input-area">
+          <div class="input-wrapper">
+            <textarea id="msg-input" rows="1" placeholder="Bạn muốn hỏi gì về sau đại học UFM ạ?"></textarea>
+            <button class="send-btn" id="send-btn" onclick="sendMessage(document.getElementById('msg-input').value)" disabled>➤</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

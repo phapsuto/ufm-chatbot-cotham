@@ -1,0 +1,43 @@
+# ═══ Python ═══
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ═══ Environment ═══
+.env
+.env.local
+.env.production
+venv/
+.venv/
+env/
+
+# ═══ Data (runtime generated) ═══
+data/
+*.jsonl
+*.csv
+
+# ═══ OS ═══
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ═══ IDE ═══
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ═══ Logs ═══
+*.log
+logs/
+
+# ═══ Misc ═══
+*.bak
+*.tmp
+.gemini/
