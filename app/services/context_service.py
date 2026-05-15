@@ -1,6 +1,7 @@
 """app/services/context_service.py — Gom context + smart source tracking (v3 enhanced)"""
 import logging
 from urllib.parse import urlparse, parse_qs
+from app.services import kb_service
 
 logger = logging.getLogger("ufm-chatbot")
 
@@ -163,6 +164,19 @@ def build_context(
                 "relevance": score,
             })
 
+    # Tra cứu Offline Knowledge Base (ưu tiên cao)
+    kb_chunks = kb_service.search_kb(query, top_k=3)
+    if kb_chunks:
+        kb_content = "\n\n---\n\n".join(kb_chunks)
+        sources_with_score.append({
+            "url": "offline_kb",
+            "title": "Kho dữ liệu Đào tạo UFM",
+            "type": "database",
+            "chars_used": len(kb_content),
+            "relevance": 0.9,  # High priority cho matched data offline
+            "content": kb_content
+        })
+
     # Sort by relevance + size, keep top sources
     sources_with_score.sort(key=lambda x: (x["relevance"], x["chars_used"]), reverse=True)
     top_sources = sources_with_score[:3]
@@ -172,16 +186,20 @@ def build_context(
     for s in top_sources:
         if s["type"] == "webpage":
             content = html_contents.get(s["url"], "")
-        else:
+        elif s["type"] == "pdf":
             content = pdf_contents.get(s["url"], "")
+        else:
+            content = s.get("content", "")
         parts.append(f"[NGUỒN: {s['title']}]\n{content[:4000]}")
 
     # Add remaining sources with lower priority
     for s in sources_with_score[3:]:
         if s["type"] == "webpage":
             content = html_contents.get(s["url"], "")
-        else:
+        elif s["type"] == "pdf":
             content = pdf_contents.get(s["url"], "")
+        else:
+            content = s.get("content", "")
         parts.append(f"[NGUỒN: {s['title']}]\n{content[:2000]}")
 
     if memory_summary:
@@ -193,8 +211,8 @@ def build_context(
     if len(full) > MAX_CONTEXT_CHARS:
         full = full[:MAX_CONTEXT_CHARS] + "\n... (rút gọn)"
 
-    if not html_contents and not pdf_contents:
-        full = "[CẢNH BÁO] Không thể truy cập website UFM lúc này."
+    if not html_contents and not pdf_contents and not kb_chunks:
+        full = "[CẢNH BÁO] Không thể truy cập website UFM lúc này và không có dữ liệu offline phù hợp."
 
     return full, top_sources
 
