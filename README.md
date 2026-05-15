@@ -1,177 +1,74 @@
-# 🎓 Cô giáo Thắm — UFM Chatbot v4
+# 🎓 Cô giáo Thắm UFM Chatbot (v4.0.0)
 
-> Trợ lý AI tư vấn tuyển sinh Sau đại học, Trường Đại học Tài chính - Marketing (UFM).  
-> Tích hợp CRM & AI Lead Scoring tự động.
+Hệ thống Chatbot AI Tuyển sinh Thông minh dành riêng cho **Viện Đào tạo Sau đại học - Trường Đại học Tài chính - Marketing (UFM)**.
+Phiên bản v4.0.0 đánh dấu sự lột xác toàn diện từ một chatbot hỏi-đáp thông thường thành **Hệ thống CRM Tư vấn Tuyển sinh Tự động (AI Recruitment CRM)**.
 
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green)
+## 🌟 Tính năng Nổi bật (Core Features)
 
-## ✨ Tính năng
+### 1. 🎯 Tự động Phân tích Tiềm năng Học viên (AI Lead Scoring)
+- **CRM Dashboard:** Giao diện quản lý thời gian thực tại `/crm/` dành cho chuyên viên tuyển sinh.
+- **Tự động chấm điểm (Lead Scoring 100 điểm):** Hệ thống âm thầm đánh giá mức độ quan tâm của học viên dựa trên hành vi chat.
+  - *Profile (25đ):* Thu thập Tên, Tuổi, Bằng cấp qua cổng Onboarding bắt buộc.
+  - *Engagement (40đ):* Tính điểm dựa trên số lượng câu hỏi và độ dài cuộc hội thoại.
+  - *Action/Intent (35đ):* Nhận diện ý định quan trọng (Hỏi học phí, Cách đăng ký, Thời gian nộp hồ sơ).
 
-### Chatbot AI
-- 🧠 **Qwen3-32B** — LLM mạnh, streaming response realtime
-- 🔍 **Web Crawling** — Crawl website UFM bằng Crawl4AI + BeautifulSoup
-- 📄 **PDF Pipeline** — 3-tier extraction: PyMuPDF → Jina Reader → Tesseract OCR
-- 💬 **Persona "Cô Thắm"** — Xưng hô thông minh theo ngữ cảnh (cô-em, tôi-anh/chị)
-- 📝 **Onboarding Gate** — Bắt buộc đăng ký trước khi chat (tên, tuổi, học vấn, liên hệ)
-- 🔗 **Smart Sources** — Dẫn chứng link chính xác, có relevance scoring
+### 2. ⚡ Hybrid RAG & Knowledge Base (Bộ não Tri thức Lai)
+Hệ thống kết hợp hoàn hảo giữa dữ liệu Offline và Online:
+- **Offline BM25 Engine:** Nạp toàn bộ kho tài liệu `.md` (Chương trình đào tạo, Quy chế) vào RAM. Truy xuất siêu tốc (0.01s) bằng thuật toán BM25.
+- **Live Web Crawler:** Tự động cào dữ liệu từ website `daotaosdh.ufm.edu.vn` làm dự phòng nếu offline không có.
 
-### CRM & Lead Scoring
-- 📊 **AI Lead Scoring** — Tự động chấm điểm 0-100, phân grade A/B/C/D
-- 🔥 **Behavior Tracking** — Ghi nhận hành vi chat realtime (hỏi học phí, điều kiện, hồ sơ...)
-- 📈 **CRM Dashboard** — Giao diện quản lý lead cho nhân viên trường
-- 📥 **Export CSV** — Xuất danh sách lead theo filter
-- 🏷️ **Status Management** — Assign, ghi chú, follow-up tracking
+### 3. 👁️‍🗨️ AI Vision PDF Reader
+Khắc phục hoàn toàn điểm yếu của các chatbot truyền thống khi gặp file PDF dạng ảnh scan (có mộc đỏ, chữ ký).
+- Tự động bắt link PDF trên website UFM.
+- Nếu là ảnh scan, chatbot cắt trang và gửi cho siêu mô hình thị giác **Qwen2.5-VL-7B-Instruct** (FPT Cloud) để bóc tách text chính xác 100%.
 
-## 🏗 Kiến trúc
+### 4. 🧠 Siêu Bộ Nhớ (Semantic QA Cache & Persistent PDF)
+- **Semantic QA Cache:** Tự động lưu trữ CÂU HỎI + CÂU TRẢ LỜI. Nếu học viên sau hỏi một câu giống >90%, AI phản hồi tức thì trong 0 giây, không tốn API.
+- **Persistent PDF Cache:** Kết quả OCR bóc tách từ PDF được lưu vĩnh viễn xuống ổ cứng. Chỉ tốn thời gian đọc ở người hỏi đầu tiên.
 
-```
-Học viên → Onboarding → Chat Pipeline → CRM Tracking → Lead Scoring
-              ↓              ↓                ↓              ↓
-        Guest Profile    LLM (Qwen3)    Behavior DB    Score 0-100
-              ↓              ↓                ↓              ↓
-        Session Memory   Smart Sources   Activity Log   Grade A/B/C/D
-                                                            ↓
-                                                    CRM Dashboard
-                                                  (KPIs, Charts, Export)
-```
+### 5. 🗣️ Xưng hô Cảm Xúc & Gợi ý Thông minh
+- Nhận diện tuổi từ Onboarding để chọn đại từ xưng hô phù hợp (`Cô - em` cho người trẻ, `Tôi - anh/chị` cho người lớn tuổi).
+- **Contextual Suggestions:** Các nút bấm gợi ý câu hỏi tiếp theo được AI sinh ra (Generate) dựa trên đúng mạch câu chuyện đang nói.
 
-## 🚀 Cài đặt
+---
 
-### 1. Clone & Setup
+## 🛠️ Cài đặt & Vận hành
 
-```bash
-git clone https://github.com/YOUR_USERNAME/ufm-chatbot-cotham.git
-cd ufm-chatbot-cotham
+### Yêu cầu hệ thống
+- Python 3.10+
+- Môi trường Mac/Linux/Windows
+- Tài khoản API FPT Cloud (Model Qwen3-32B và Qwen2.5-VL-7B)
 
-python -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate   # Windows
+### Khởi động dự án
+1. **Cài đặt thư viện:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Cấu hình môi trường (.env):**
+   ```env
+   FPT_CLOUD_API_KEY="Mã API của bạn"
+   CRM_DASHBOARD_PASSWORD="ufm_crm_2026"
+   ```
+3. **Chạy Server:**
+   ```bash
+   uvicorn app.main:app --port 8001 --reload
+   ```
 
-pip install -r requirements.txt
-playwright install chromium
-```
+### Truy cập
+- **Chat Interface:** [http://localhost:8001](http://localhost:8001)
+- **CRM Dashboard:** [http://localhost:8001/crm/](http://localhost:8001/crm/)
 
-### 2. Cấu hình
+---
 
-```bash
-cp .env.example .env
-```
+## 🏗️ Cấu trúc thư mục cốt lõi
+- `app/routes/`: Các API endpoints (chat, handoff, crm).
+- `app/services/`: Logic nghiệp vụ lõi:
+  - `kb_service.py`: Xử lý Offline RAG BM25.
+  - `pdf_service.py`: Xử lý OCR và AI Vision.
+  - `crm_service.py`: Chấm điểm Lead Scoring & Lưu trữ JSON.
+  - `cache_service.py`: Semantic QA Cache.
+- `CTDT_THACSI VA TIENSI/`: Kho dữ liệu Markdown Offline.
+- `static/`: Giao diện Web Client & Dashboard CRM.
 
-Mở `.env` và điền các giá trị:
-
-| Biến | Mô tả | Bắt buộc |
-|------|--------|----------|
-| `FPT_CLOUD_API_KEY` | API key FPT Cloud AI | ✅ |
-| `CRM_DASHBOARD_PASSWORD` | Mật khẩu CRM Dashboard | ✅ |
-| `CRM_SESSION_SECRET` | Secret key cho session | ✅ |
-| `LLM_TEMPERATURE` | Temperature LLM | Mặc định: 0.7 |
-| `CACHE_TTL_HTML` | TTL cache HTML (giây) | Mặc định: 900 |
-
-### 3. Chạy
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-- **Chatbot**: http://localhost:8000
-- **CRM Dashboard**: http://localhost:8000/crm/
-
-### 4. OCR (tùy chọn)
-
-Để đọc PDF scan dạng ảnh:
-
-```bash
-# macOS
-brew install tesseract tesseract-lang poppler
-
-# Ubuntu/Debian
-apt-get install -y tesseract-ocr tesseract-ocr-vie poppler-utils
-```
-
-## 📡 API Endpoints
-
-### Chatbot
-
-| Method | Path | Mô tả |
-|--------|------|--------|
-| `GET` | `/` | Frontend chatbot |
-| `POST` | `/api/guest/register` | Đăng ký thông tin học viên |
-| `POST` | `/api/chat` | Chat (streaming SSE) |
-| `POST` | `/api/handoff` | Đăng ký tư vấn trực tiếp |
-| `GET` | `/api/health` | Health check |
-
-### CRM (yêu cầu `X-CRM-Token` header)
-
-| Method | Path | Mô tả |
-|--------|------|--------|
-| `POST` | `/api/crm/login` | Đăng nhập CRM |
-| `GET` | `/api/crm/dashboard/stats` | KPI tổng quan |
-| `GET` | `/api/crm/leads` | Danh sách lead (filter + pagination) |
-| `GET` | `/api/crm/leads/{id}` | Chi tiết lead + score breakdown |
-| `PATCH` | `/api/crm/leads/{id}` | Cập nhật status/assign |
-| `POST` | `/api/crm/leads/{id}/notes` | Thêm ghi chú |
-| `GET` | `/api/crm/export/csv` | Xuất CSV |
-
-## 📊 Lead Scoring Rubric
-
-| Nhóm | Max | Tiêu chí |
-|------|-----|----------|
-| **Profile** | 25 | Trình độ (10), ngành liên quan (8), tuổi (4), kinh nghiệm (3) |
-| **Engagement** | 40 | Hỏi học phí (15), điều kiện (10), liên hệ (10), lịch/hồ sơ (8), deadline (7)... |
-| **Action** | 35 | Nộp hồ sơ (35), hoàn thành 80%+ (28), khẩn cấp (10), quay lại (8) |
-
-| Grade | Score | Ý nghĩa |
-|-------|-------|---------|
-| 🔥 A | ≥75 | Hot Lead — liên hệ ngay |
-| ⭐ B | ≥55 | Quan tâm — theo dõi tiếp |
-| 💡 C | ≥35 | Cần follow-up |
-| ❄️ D | <35 | Mới tiếp cận |
-
-## 📁 Cấu trúc project
-
-```
-ufm-chatbot/
-├── app/
-│   ├── main.py              # FastAPI entry point
-│   ├── config.py             # Pydantic settings
-│   ├── models.py             # Request/Response models
-│   ├── routes/
-│   │   ├── chat.py           # Chat pipeline
-│   │   ├── crm.py            # CRM API endpoints
-│   │   ├── guest.py          # Onboarding registration
-│   │   ├── enrollment.py     # Enrollment forms
-│   │   ├── handoff.py        # Tư vấn trực tiếp
-│   │   └── health.py         # Health checks
-│   └── services/
-│       ├── llm_service.py    # LLM integration (Qwen3)
-│       ├── crm_service.py    # CRM data layer
-│       ├── scoring_engine.py # AI Lead Scoring
-│       ├── crawler_service.py# Web crawling
-│       ├── pdf_service.py    # PDF extraction (3-tier)
-│       ├── memory_service.py # Session memory
-│       ├── context_service.py# Context builder
-│       └── ...
-├── static/
-│   ├── index.html            # Chatbot frontend
-│   ├── app.js                # Chat UI logic
-│   ├── style.css             # Chatbot styles
-│   └── crm/
-│       ├── index.html        # CRM Dashboard
-│       ├── crm.css           # Dashboard styles
-│       └── crm.js            # Dashboard logic
-├── requirements.txt
-├── .env.example
-└── .gitignore
-```
-
-## 🔒 Bảo mật
-
-- `.env` chứa API key — **KHÔNG** commit lên git
-- CRM Dashboard được bảo vệ bằng password + SHA256 token
-- Tất cả CRM API yêu cầu `X-CRM-Token` header
-
-## 📄 License
-
-MIT License — Phát triển bởi [Dr. Tô Nguyễn](https://github.com/YOUR_USERNAME) cho Trường ĐH Tài chính - Marketing.
+---
+*Phát triển chuyên biệt cho Viện Đào tạo Sau đại học UFM.*
