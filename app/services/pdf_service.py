@@ -157,68 +157,62 @@ def extract_text_pymupdf(pdf_bytes: bytes) -> tuple[str, int]:
         return "", 0
 
 
-# ── Tầng 2: Jina Reader (cloud OCR fallback) ─────────────
-_jina_client: httpx.AsyncClient | None = None
-
-
-async def _get_jina_client() -> httpx.AsyncClient:
-    global _jina_client
-    if _jina_client is None or _jina_client.is_closed:
-        _jina_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(15.0, connect=5.0),
-            verify=False,
-            limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
-        )
-    return _jina_client
-
-
-async def extract_text_jina(pdf_url: str) -> tuple[str, str]:
-    """Tầng 2: Jina Reader cloud OCR. Returns (text, method)."""
+# ── Tầng 2: FPT Cloud Qwen-VL (Vision OCR) ────────────────
+async def extract_text_fpt_vision(pdf_bytes: bytes) -> tuple[str, str]:
+    """Sử dụng Qwen2.5-VL-7B-Instruct trên FPT Cloud để đọc PDF dạng ảnh."""
+    import base64
+    from app.config import settings
+    
     try:
-        client = await _get_jina_client()
-        resp = await client.get(
-            f"https://r.jina.ai/{pdf_url}",
-            headers={"Accept": "text/plain", "X-Return-Format": "text"},
-        )
-        if resp.status_code == 200 and resp.text.strip():
-            text = resp.text.strip()[:4000]
-            return text, "jina_reader"
-        return "", "jina_failed"
-    except Exception as e:
-        logger.warning(f"[pdf] Jina Reader failed: {e}")
-        return "", "jina_failed"
-
-
-# ── Tầng 3: Tesseract OCR (local) ────────────────────────
-def extract_text_tesseract_ocr(pdf_bytes: bytes) -> tuple[str, str]:
-    """pdf2image + Tesseract OCR for scanned PDFs. Returns (text, method)."""
-    if not _TESSERACT_AVAILABLE or not _POPPLER_AVAILABLE:
-        return "", "ocr_unavailable"
-
-    try:
-        images = convert_from_bytes(
-            pdf_bytes, dpi=OCR_DPI, fmt="PNG",
-            thread_count=2, grayscale=False,
-        )
-        if not images:
-            return "", "ocr_no_images"
-
-        logger.info(f"[pdf] OCR processing {len(images)} pages with Tesseract...")
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        num_pages = min(len(doc), 5)  # Giới hạn 5 trang đầu để tránh quá tải/chi phí
         texts = []
-        custom_config = f"--oem 3 --psm 6 -l {TESSERACT_LANG}"
-
-        for i, pil_img in enumerate(images):
-            processed = preprocess_image_for_ocr(pil_img)
-            text = pytesseract.image_to_string(processed, lang=TESSERACT_LANG, config=custom_config)
-            if text.strip():
-                texts.append(f"[Trang {i + 1}]\n{text.strip()}")
-
+        
+        headers = {
+            "Authorization": f"Bearer {settings.FPT_CLOUD_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            for page_num in range(num_pages):
+                page = doc[page_num]
+                pix = page.get_pixmap(dpi=150)
+                img_bytes = pix.tobytes("jpeg")
+                b64_img = base64.b64encode(img_bytes).decode('utf-8')
+                
+                payload = {
+                    "model": "Qwen2.5-VL-7B-Instruct",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Trích xuất toàn bộ văn bản trong hình ảnh này. Chỉ trả về văn bản, không bình luận thêm."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
+                            ]
+                        }
+                    ]
+                }
+                
+                response = await client.post(
+                    settings.FPT_CLOUD_BASE_URL + "/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                
+                if response.status_code == 200:
+                    page_text = response.json()['choices'][0]['message']['content']
+                    texts.append(f"[Trang {page_num + 1}]\n{page_text.strip()}")
+                else:
+                    logger.warning(f"[pdf] Qwen-VL page {page_num+1} failed: {response.text}")
+                    
+        doc.close()
         full_text = "\n\n".join(texts)
-        logger.info(f"[pdf] Tesseract OCR extracted {len(full_text)} chars")
-        return full_text, "tesseract_ocr"
-
+        if full_text:
+            return full_text, "qwen_vl_ocr"
+        return "", "ocr_failed"
+        
     except Exception as e:
-        logger.error(f"[pdf] Tesseract OCR failed: {e}")
+        logger.error(f"[pdf] Qwen-VL OCR failed: {e}")
         return "", "ocr_failed"
 
 
@@ -322,30 +316,17 @@ async def read_pdf(pdf_url: str) -> Optional[str]:
             method = "pymupdf_text_layer"
             logger.info(f"[pdf] Tầng 1 (PyMuPDF text): {len(text)} chars")
         else:
-            logger.info(f"[pdf] Text layer too short ({len(pymupdf_text.strip())} chars), trying fallbacks...")
+            logger.info(f"[pdf] Text layer too short ({len(pymupdf_text.strip())} chars), fallback to Vision OCR...")
 
-            # ── Tầng 2: Jina Reader (cloud) ──
-            jina_text, jina_method = await extract_text_jina(pdf_url)
-            if len(jina_text.strip()) >= MIN_TEXT_LENGTH:
-                text = clean_extracted_text(jina_text)
-                method = "jina_reader"
-                logger.info(f"[pdf] Tầng 2 (Jina): {len(text)} chars")
+            # ── Tầng 2: FPT Cloud Vision OCR ──
+            vl_text, vl_method = await extract_text_fpt_vision(pdf_bytes)
+            if len(vl_text.strip()) >= 50:
+                text = clean_extracted_text(vl_text)
+                method = "qwen_vl_ocr"
+                num_pages = max(num_pages, vl_text.count("[Trang "))
+                logger.info(f"[pdf] Tầng 2 (Qwen-VL OCR): {len(text)} chars")
             else:
-                # ── Tầng 3: Tesseract OCR ──
-                if _TESSERACT_AVAILABLE and _POPPLER_AVAILABLE:
-                    loop = asyncio.get_event_loop()
-                    ocr_text, ocr_method = await loop.run_in_executor(
-                        None, extract_text_tesseract_ocr, pdf_bytes
-                    )
-                    if len(ocr_text.strip()) >= 50:
-                        text = clean_extracted_text(ocr_text)
-                        method = "tesseract_ocr"
-                        num_pages = max(num_pages, ocr_text.count("[Trang "))
-                        logger.info(f"[pdf] Tầng 3 (Tesseract): {len(text)} chars")
-                    else:
-                        logger.error(f"[pdf] ALL METHODS FAILED: {pdf_url}")
-                else:
-                    logger.warning(f"[pdf] Tesseract unavailable, Jina also failed: {pdf_url}")
+                logger.error(f"[pdf] ALL METHODS FAILED: {pdf_url}")
 
         # Truncate for context window
         if text:

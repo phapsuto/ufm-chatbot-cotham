@@ -52,16 +52,32 @@ async def _fast_bs4(url: str) -> Optional[str]:
             return None
         html = resp.text
         soup = BeautifulSoup(html, "lxml")
+        
+        # Extract PDF links BEFORE decomposing tags
+        pdf_urls = []
+        from urllib.parse import urljoin
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if href.lower().endswith('.pdf') or 'filetype=pdf' in href.lower():
+                full_url = urljoin(url, href)
+                if full_url not in pdf_urls:
+                    pdf_urls.append(full_url)
+                    
         for tag in soup(["script", "style", "nav", "iframe", "footer", "noscript"]):
             tag.decompose()
         main = soup.find("main") or soup.find("article") or soup.find(class_="content") or soup.find("body")
         if not main:
             return None
         text = main.get_text(separator="\n", strip=True)
+        
+        # Append found PDF URLs so the regex in pdf_service can pick them up
+        if pdf_urls:
+            text += "\n\n[PDF LINKS]:\n" + "\n".join(pdf_urls)
+            
         lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 3]
         clean = "\n".join(lines)[:8000]
         if clean and len(clean) > 50:
-            logger.info(f"[fast] bs4 url={url.split('?')[0][-30:]} chars={len(clean)}")
+            logger.info(f"[fast] bs4 url={url.split('?')[0][-30:]} chars={len(clean)} pdfs={len(pdf_urls)}")
             return clean
         return None
     except httpx.TimeoutException:
