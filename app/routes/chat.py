@@ -11,7 +11,7 @@ from app.models import ChatRequest
 from app.services import (
     router_service, crawler_service, pdf_service,
     context_service, memory_service, suggestion_service,
-    llm_service, crm_service,
+    llm_service, crm_service, cache_service
 )
 
 logger = logging.getLogger("ufm-chatbot")
@@ -31,10 +31,49 @@ async def chat(req: ChatRequest):
     memory_service.get_or_create_session(session_id)
     memory_service.update_pronoun_early(session_id, message)
 
-    # 2. Detect intent
+    # 2. Check QA Semantic Cache (Tăng tốc độ trả lời)
+    cached_answer = cache_service.get_cached_answer(message)
+    if cached_answer:
+        logger.info(f"[pipeline] Using QA Cache for '{message[:20]}'")
+        
+        def generate_cached():
+            import asyncio
+            # Giả lập stream cực nhanh
+            chunk_size = max(5, len(cached_answer) // 20)
+            for i in range(0, len(cached_answer), chunk_size):
+                yield f"data: {cached_answer[i:i+chunk_size]}\n\n"
+                
+            ctx = memory_service.get_or_create_session(session_id)["context"]
+            suggestions = suggestion_service.get_suggestions("general", ctx.get("asked_about", []))
+            
+            meta = json.dumps({
+                "done": True,
+                "session_id": session_id,
+                "sources": [{"title": "Cached Database", "url": "#", "type": "cache"}],
+                "suggestions": suggestions,
+                "requires_handoff": False,
+            })
+            yield f"data: {meta}\n\n"
+            yield "data: [DONE]\n\n"
+            
+            # Cập nhật lịch sử
+            memory_service.add_message(session_id, "user", message)
+            memory_service.add_message(session_id, "assistant", cached_answer)
+            try:
+                crm_service.update_chat_behavior(session_id, message, "general")
+            except Exception:
+                pass
+
+        return StreamingResponse(
+            generate_cached(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
+
+    # 3. Detect intent
     routing = router_service.detect_intent(message)
 
-    # 3. Crawl HTML
+    # 4. Crawl HTML
     html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
 
     # 4. Extract & read PDFs (always scan for PDF links in HTML)
@@ -106,6 +145,9 @@ async def chat(req: ChatRequest):
         memory_service.add_message(session_id, "user", message)
         memory_service.add_message(session_id, "assistant", full_response)
         memory_service.update_context(session_id, intent, message)
+        
+        # Save to QA Cache for future identical/similar questions
+        cache_service.set_cached_answer(message, full_response)
 
         # CRM: track behavior + re-score
         try:
