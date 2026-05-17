@@ -8,7 +8,7 @@ from collections import Counter
 
 logger = logging.getLogger("ufm-chatbot")
 
-KB_DIR = Path("CTDT_THACSI VA TIENSI")
+KB_DIR = Path("app/knowledge_base")
 
 class SimpleBM25:
     def __init__(self, corpus):
@@ -51,8 +51,11 @@ _chunks = []
 _bm25 = None
 
 def _tokenize(text: str) -> list[str]:
+    from underthesea import word_tokenize
+    # Tách từ tiếng Việt thành các compound words (ví dụ: "sinh_viên")
     text = text.lower()
-    return re.findall(r'\b\w+\b', text)
+    tokens = word_tokenize(text, format="text").split()
+    return [t for t in tokens if len(t) > 1]
 
 def _load_kb():
     global _chunks, _bm25
@@ -84,8 +87,8 @@ def _load_kb():
 # Khởi tạo lúc start
 _load_kb()
 
-def search_kb(query: str, top_k: int = 3) -> list[str]:
-    """Tìm kiếm nội dung offline dựa vào câu hỏi."""
+def search_kb(query: str, top_k: int = 3) -> list[dict]:
+    """Tìm kiếm nội dung offline dựa vào câu hỏi, trả về list dict chứa content và score."""
     if not _bm25 or not _chunks:
         return []
         
@@ -101,6 +104,9 @@ def search_kb(query: str, top_k: int = 3) -> list[str]:
     results = []
     for i in top_indices:
         if scores[i] > 0.5:  # Ngưỡng tối thiểu
-            results.append(_chunks[i])
+            results.append({
+                "content": _chunks[i],
+                "score": scores[i]
+            })
             
     return results

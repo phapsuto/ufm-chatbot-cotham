@@ -70,33 +70,45 @@ async def chat(req: ChatRequest):
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
 
-    # 3. Detect intent
-    routing = router_service.detect_intent(message)
-
-    # 4. Crawl HTML
-    html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
-
-    # 4. Extract & read PDFs (always scan for PDF links in HTML)
+    # 3. Tra cứu Offline KB trước (BM25 siêu tốc)
+    from app.services import kb_service
+    kb_chunks = kb_service.search_kb(message, top_k=3)
+    kb_has_strong_match = any(chunk["score"] > 2.0 for chunk in kb_chunks) if kb_chunks else False
+    
+    # 4. Crawl HTML (Chỉ crawl nếu KB không đủ mạnh hoặc không có dữ liệu)
+    html_contents = {}
     pdf_contents = {}
-    if html_contents:
-        all_html = "\n".join(html_contents.values())
-        pdf_links = pdf_service.extract_pdf_links(all_html)
-        if pdf_links:
-            max_pdfs = 2 if routing["need_pdf"] else 1
-            pdf_contents = await pdf_service.read_pdfs(pdf_links, max_pdfs=max_pdfs)
+    routing = router_service.detect_intent(message)
+    intent = routing["intents"][0] if routing["intents"] else "general"
+
+    if not kb_has_strong_match and routing.get("urls"):
+        logger.info("[pipeline] KB match low/none, falling back to Web Crawler...")
+        html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
+        if html_contents:
+            all_html = "\n".join(html_contents.values())
+            pdf_links = pdf_service.extract_pdf_links(all_html)
+            if pdf_links:
+                max_pdfs = 2 if routing.get("need_pdf") else 1
+                pdf_contents = await pdf_service.read_pdfs(pdf_links, max_pdfs=max_pdfs)
+    else:
+        logger.info("[pipeline] Strong KB match found, skipping Web Crawler!")
 
     # 5. Build context + context summary (có pronoun_role)
     mem_summary = memory_service.get_context_summary(session_id)
     context, sources_used = context_service.build_context(html_contents, pdf_contents, mem_summary, message)
 
     # 6. Pre-compute metadata
-    confidence = context_service.estimate_confidence(html_contents, pdf_contents)
+    # Nếu có kb_chunks với điểm cao, độ tự tin tự động đạt mức cao (1.0)
+    if kb_has_strong_match:
+        confidence = 1.0
+    else:
+        confidence = context_service.estimate_confidence(html_contents, pdf_contents)
+        
     requires_handoff = confidence < 0.4 or suggestion_service.check_handoff_trigger(message)
     history = memory_service.get_conversation_history(session_id)
-    intent = routing["intents"][0] if routing["intents"] else "general"
-
+    
     elapsed = time.time() - t0
-    logger.info(f"[pipeline] prep={elapsed:.1f}s html={len(html_contents)} pdf={len(pdf_contents)}")
+    logger.info(f"[pipeline] prep={elapsed:.1f}s html={len(html_contents)} pdf={len(pdf_contents)} kb={len(kb_chunks)}")
 
     # 7. Stream LLM response — pass context_summary for xưng hô
     def generate():

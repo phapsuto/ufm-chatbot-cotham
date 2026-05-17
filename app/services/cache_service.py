@@ -14,11 +14,11 @@ logger = logging.getLogger("ufm-chatbot")
 _html_cache: TTLCache = TTLCache(maxsize=settings.CACHE_MAX_SIZE, ttl=settings.CACHE_TTL_HTML)
 
 # Persistent Cache cho PDF (để không phải OCR lại khi restart)
-PDF_CACHE_DIR = Path("data/cache/pdfs")
+PDF_CACHE_DIR = Path("app/database/pdfs")
 PDF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # QA Cache (Semantic Match)
-QA_CACHE_FILE = Path("data/cache/qa_cache.json")
+QA_CACHE_FILE = Path("app/database/qa_cache.json")
 QA_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 _qa_cache = []
@@ -79,11 +79,13 @@ def set_pdf(url: str, content: str) -> None:
 
 # --- QA SEMANTIC CACHE ---
 def clean_query(q: str) -> str:
-    # Xóa dấu câu và đưa về chữ thường để so sánh
+    # Xóa dấu câu và đưa về chữ thường, dùng underthesea để gộp từ tiếng Việt
     import re
+    from underthesea import word_tokenize
     q = q.lower()
-    q = re.sub(r'[^\w\s]', '', q)
-    return " ".join(q.split())
+    q = re.sub(r'[^\w\s]', ' ', q)
+    tokens = word_tokenize(q, format="text").split()
+    return " ".join(tokens)
 
 def get_cached_answer(query: str, similarity_threshold: float = 0.90) -> str | None:
     """Tìm câu trả lời đã lưu nếu câu hỏi giống trên 90%."""

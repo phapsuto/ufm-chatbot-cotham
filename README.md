@@ -1,34 +1,33 @@
-# 🎓 Cô giáo Thắm UFM Chatbot (v4.0.0)
+# 🎓 Cô giáo Thắm UFM Chatbot (v4.1.0)
 
 Hệ thống Chatbot AI Tuyển sinh Thông minh dành riêng cho **Viện Đào tạo Sau đại học - Trường Đại học Tài chính - Marketing (UFM)**.
-Phiên bản v4.0.0 đánh dấu sự lột xác toàn diện từ một chatbot hỏi-đáp thông thường thành **Hệ thống CRM Tư vấn Tuyển sinh Tự động (AI Recruitment CRM)**.
+Phiên bản v4.1.0 đánh dấu sự hoàn thiện toàn diện với bộ não Tiếng Việt NLP và lưu trữ Data tích hợp chặt chẽ vào mã nguồn.
 
 ## 🌟 Tính năng Nổi bật (Core Features)
 
-### 1. 🎯 Tự động Phân tích Tiềm năng Học viên (AI Lead Scoring)
-- **CRM Dashboard:** Giao diện quản lý thời gian thực tại `/crm/` dành cho chuyên viên tuyển sinh.
-- **Tự động chấm điểm (Lead Scoring 100 điểm):** Hệ thống âm thầm đánh giá mức độ quan tâm của học viên dựa trên hành vi chat.
-  - *Profile (25đ):* Thu thập Tên, Tuổi, Bằng cấp qua cổng Onboarding bắt buộc.
-  - *Engagement (40đ):* Tính điểm dựa trên số lượng câu hỏi và độ dài cuộc hội thoại.
-  - *Action/Intent (35đ):* Nhận diện ý định quan trọng (Hỏi học phí, Cách đăng ký, Thời gian nộp hồ sơ).
+### 1. 🇻🇳 Lõi Xử lý Ngôn ngữ Tự nhiên Tiếng Việt (Underthesea NLP)
+Hệ thống được tích hợp bộ công cụ NLP `underthesea` chuyên biệt cho tiếng Việt:
+- **Tách từ thông minh (Word Tokenize):** Thay vì tách từng chữ (như "sinh", "viên"), AI hiểu được các cụm từ ghép ("sinh_viên", "tài_chính") để tính toán BM25 và độ tương đồng ngữ nghĩa chính xác 100%.
+- Giúp chatbot hiểu đúng văn cảnh tiếng Việt phức tạp hơn, tra cứu Knowledge Base và Semantic Cache mượt mà hơn.
 
 ### 2. ⚡ Hybrid RAG & Knowledge Base (Bộ não Tri thức Lai)
 Hệ thống kết hợp hoàn hảo giữa dữ liệu Offline và Online:
-- **Offline BM25 Engine:** Nạp toàn bộ kho tài liệu `.md` (Chương trình đào tạo, Quy chế) vào RAM. Truy xuất siêu tốc (0.01s) bằng thuật toán BM25.
-- **Live Web Crawler:** Tự động cào dữ liệu từ website `daotaosdh.ufm.edu.vn` làm dự phòng nếu offline không có.
+- **Ưu tiên tuyệt đối Offline KB:** Toàn bộ kho tài liệu `.md` (Chương trình đào tạo, Quy chế) được nạp trực tiếp vào RAM từ thư mục tích hợp `app/knowledge_base/`. Khi có câu hỏi, chatbot **bắt buộc lục tìm trong KB trước**. 
+- Nếu tìm thấy dữ liệu chuẩn với điểm tự tin cao, nó sẽ **bỏ qua bước tìm kiếm web** để tiết kiệm thời gian (thời gian phản hồi < 1s).
+- **Live Web Crawler:** Tự động cào dữ liệu từ website `daotaosdh.ufm.edu.vn` làm dự phòng nếu offline không có dữ liệu.
 
-### 3. 👁️‍🗨️ AI Vision PDF Reader
+### 3. 🧠 Siêu Bộ Nhớ Vĩnh Viễn (Persistent Cache Database)
+Tất cả bộ nhớ đã được đưa vào thư mục nội bộ `app/database/` để đảm bảo lưu trữ vĩnh viễn và sống chung với vòng đời của ứng dụng:
+- **Semantic QA Cache (`qa_cache.json`):** Tự động lưu trữ CÂU HỎI + CÂU TRẢ LỜI. Nhờ Underthesea NLP, các câu hỏi tương tự được nhận diện cực kì chuẩn. Học viên hỏi trùng ý, AI phản hồi tức thì trong 0 giây.
+- **Persistent PDF Cache (`pdfs/`):** Kết quả AI Vision OCR bóc tách từ PDF được lưu vĩnh viễn xuống ổ cứng nội bộ.
+
+### 4. 🎯 Tự động Phân tích Tiềm năng Học viên (AI Lead Scoring)
+- **CRM Dashboard:** Giao diện quản lý thời gian thực tại `/crm/` dành cho chuyên viên tuyển sinh.
+- **Tự động chấm điểm (Lead Scoring 100 điểm):** Hệ thống âm thầm đánh giá mức độ quan tâm của học viên dựa trên hành vi chat.
+
+### 5. 👁️‍🗨️ AI Vision PDF Reader
 Khắc phục hoàn toàn điểm yếu của các chatbot truyền thống khi gặp file PDF dạng ảnh scan (có mộc đỏ, chữ ký).
-- Tự động bắt link PDF trên website UFM.
-- Nếu là ảnh scan, chatbot cắt trang và gửi cho siêu mô hình thị giác **Qwen2.5-VL-7B-Instruct** (FPT Cloud) để bóc tách text chính xác 100%.
-
-### 4. 🧠 Siêu Bộ Nhớ (Semantic QA Cache & Persistent PDF)
-- **Semantic QA Cache:** Tự động lưu trữ CÂU HỎI + CÂU TRẢ LỜI. Nếu học viên sau hỏi một câu giống >90%, AI phản hồi tức thì trong 0 giây, không tốn API.
-- **Persistent PDF Cache:** Kết quả OCR bóc tách từ PDF được lưu vĩnh viễn xuống ổ cứng. Chỉ tốn thời gian đọc ở người hỏi đầu tiên.
-
-### 5. 🗣️ Xưng hô Cảm Xúc & Gợi ý Thông minh
-- Nhận diện tuổi từ Onboarding để chọn đại từ xưng hô phù hợp (`Cô - em` cho người trẻ, `Tôi - anh/chị` cho người lớn tuổi).
-- **Contextual Suggestions:** Các nút bấm gợi ý câu hỏi tiếp theo được AI sinh ra (Generate) dựa trên đúng mạch câu chuyện đang nói.
+- Gửi ảnh trang PDF cho siêu mô hình thị giác **Qwen2.5-VL-7B-Instruct** (FPT Cloud) để bóc tách text.
 
 ---
 
@@ -36,13 +35,13 @@ Khắc phục hoàn toàn điểm yếu của các chatbot truyền thống khi 
 
 ### Yêu cầu hệ thống
 - Python 3.10+
-- Môi trường Mac/Linux/Windows
+- `underthesea>=6.8.0`
 - Tài khoản API FPT Cloud (Model Qwen3-32B và Qwen2.5-VL-7B)
 
 ### Khởi động dự án
 1. **Cài đặt thư viện:**
    ```bash
-   pip install -r requirements.txt
+   pip3 install -r requirements.txt
    ```
 2. **Cấu hình môi trường (.env):**
    ```env
@@ -61,13 +60,14 @@ Khắc phục hoàn toàn điểm yếu của các chatbot truyền thống khi 
 ---
 
 ## 🏗️ Cấu trúc thư mục cốt lõi
+- `app/knowledge_base/`: Kho dữ liệu Markdown Offline tích hợp (Bắt buộc truy xuất trước tiên).
+- `app/database/`: Nơi lưu trữ bộ nhớ dài hạn, QA Cache và PDF Cache.
 - `app/routes/`: Các API endpoints (chat, handoff, crm).
 - `app/services/`: Logic nghiệp vụ lõi:
-  - `kb_service.py`: Xử lý Offline RAG BM25.
+  - `kb_service.py`: Xử lý Offline RAG BM25 siêu tốc với *underthesea*.
   - `pdf_service.py`: Xử lý OCR và AI Vision.
   - `crm_service.py`: Chấm điểm Lead Scoring & Lưu trữ JSON.
   - `cache_service.py`: Semantic QA Cache.
-- `CTDT_THACSI VA TIENSI/`: Kho dữ liệu Markdown Offline.
 - `static/`: Giao diện Web Client & Dashboard CRM.
 
 ---

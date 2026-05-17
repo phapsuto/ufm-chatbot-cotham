@@ -164,16 +164,23 @@ def build_context(
                 "relevance": score,
             })
 
-    # Tra cứu Offline Knowledge Base (ưu tiên cao)
+    # Tra cứu Offline Knowledge Base (ưu tiên cao nhất, luôn lục trong này trước)
     kb_chunks = kb_service.search_kb(query, top_k=3)
+    kb_content_parts = []
+    kb_highest_score = 0.0
     if kb_chunks:
-        kb_content = "\n\n---\n\n".join(kb_chunks)
+        for chunk in kb_chunks:
+            kb_content_parts.append(chunk["content"])
+            if chunk["score"] > kb_highest_score:
+                kb_highest_score = chunk["score"]
+                
+        kb_content = "\n\n---\n\n".join(kb_content_parts)
         sources_with_score.append({
             "url": "offline_kb",
-            "title": "Kho dữ liệu Đào tạo UFM",
+            "title": "Kho dữ liệu Đào tạo UFM (Offline)",
             "type": "database",
             "chars_used": len(kb_content),
-            "relevance": 0.9,  # High priority cho matched data offline
+            "relevance": 0.95 + min(kb_highest_score / 10, 0.05),  # Ưu tiên tuyệt đối
             "content": kb_content
         })
 
