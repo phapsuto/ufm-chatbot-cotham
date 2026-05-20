@@ -73,7 +73,9 @@ async def chat(req: ChatRequest):
     # 3. Tra cứu Offline KB trước (BM25 siêu tốc)
     from app.services import kb_service
     kb_chunks = kb_service.search_kb(message, top_k=3)
-    kb_has_strong_match = any(chunk["score"] > 2.0 for chunk in kb_chunks) if kb_chunks else False
+    highest_score = max(chunk["score"] for chunk in kb_chunks) if kb_chunks else 0.0
+    kb_has_strong_match = highest_score >= 1.0
+    logger.info(f"[pipeline] Offline KB check: query='{message[:40]}' matches={len(kb_chunks)} highest_score={highest_score:.2f} (strong_match={kb_has_strong_match})")
     
     # 4. Crawl HTML (Chỉ crawl nếu KB không đủ mạnh hoặc không có dữ liệu)
     html_contents = {}

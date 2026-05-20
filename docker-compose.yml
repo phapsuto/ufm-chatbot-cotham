@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ufm-chatbot:
+    build: .
+    container_name: ufm-chatbot-cotham
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    volumes:
+      # Mount thư mục lưu trữ dữ liệu cache & history vĩnh viễn trên máy chủ vật lý
+      # Giúp lưu trữ lâu dài kể cả khi restart container, đúng như yêu cầu của anh
+      - ./app/database:/app/app/database
+      - ./data:/app/data
+    restart: always

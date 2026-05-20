@@ -8,7 +8,7 @@ from collections import Counter
 
 logger = logging.getLogger("ufm-chatbot")
 
-KB_DIR = Path("app/knowledge_base")
+KB_DIR = Path(__file__).resolve().parent.parent / "knowledge_base"
 
 class SimpleBM25:
     def __init__(self, corpus):

@@ -14,11 +14,11 @@ logger = logging.getLogger("ufm-chatbot")
 _html_cache: TTLCache = TTLCache(maxsize=settings.CACHE_MAX_SIZE, ttl=settings.CACHE_TTL_HTML)
 
 # Persistent Cache cho PDF (để không phải OCR lại khi restart)
-PDF_CACHE_DIR = Path("app/database/pdfs")
+PDF_CACHE_DIR = Path(__file__).resolve().parent.parent / "database" / "pdfs"
 PDF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # QA Cache (Semantic Match)
-QA_CACHE_FILE = Path("app/database/qa_cache.json")
+QA_CACHE_FILE = Path(__file__).resolve().parent.parent / "database" / "qa_cache.json"
 QA_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 _qa_cache = []

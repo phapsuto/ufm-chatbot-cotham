@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routes import chat, health, handoff, guest, enrollment, crm
-from app.services import cache_service, memory_service
+from app.services import cache_service, memory_service, kb_service
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG_MODE else logging.INFO,

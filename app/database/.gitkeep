@@ -1,0 +1,1 @@
+# Giữ thư mục app/database này trong Git để Docker mount volume không bị lỗi permission.

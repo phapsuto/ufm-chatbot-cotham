@@ -10,7 +10,7 @@ from app.models import HandoffRequest
 
 logger = logging.getLogger("ufm-chatbot")
 
-DATA_DIR = Path("data")
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 LEADS_CSV = DATA_DIR / "handoff_leads.csv"
 LEADS_JSON = DATA_DIR / "handoff_leads.json"
 

@@ -69,7 +69,7 @@ if tessdata:
     os.environ.setdefault("TESSDATA_PREFIX", tessdata)
 
 # ── Extraction log ────────────────────────────────────────
-_LOG_FILE = Path("data/pdf_extraction_log.jsonl")
+_LOG_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "pdf_extraction_log.jsonl"
 
 
 def _log_extraction(entry: dict):
