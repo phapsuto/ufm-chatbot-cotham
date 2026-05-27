@@ -140,3 +140,48 @@ async def crawl_multiple(urls: list[str], max_urls: int = 4) -> dict[str, str]:
         if isinstance(result, str) and result:
             results[url] = result
     return results
+
+
+def web_search_ddg(query: str) -> str:
+    """Tra cứu thông tin tự do trên Internet qua DuckDuckGo HTML API (Miễn phí 100% & Không cần API Key)"""
+    try:
+        import requests
+        url = "https://html.duckduckgo.com/html/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+        # Gửi yêu cầu tìm kiếm dạng POST lên DuckDuckGo
+        resp = requests.post(url, data={"q": query}, headers=headers, timeout=8, verify=False)
+        if resp.status_code != 200:
+            logger.warning(f"[web-search] DuckDuckGo search returned status {resp.status_code}")
+            return ""
+            
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = []
+        
+        # Duyệt qua tối đa 4 kết quả tìm kiếm đầu tiên
+        snippets = soup.find_all("a", class_="result__snippet")[:4]
+        for a in snippets:
+            text = a.get_text(strip=True)
+            parent = a.find_parent("div", class_="result__body")
+            title_tag = parent.find("a", class_="result__url") if parent else None
+            title = title_tag.get_text(strip=True) if title_tag else "Kết quả tìm kiếm Internet"
+            href = title_tag["href"] if title_tag and "href" in title_tag.attrs else "#"
+            
+            # Giải mã link chuyển hướng của DuckDuckGo nếu có
+            if href.startswith("//duckduckgo.com/l/?uddg="):
+                from urllib.parse import unquote
+                href = unquote(href.split("uddg=")[1].split("&")[0])
+                
+            results.append(f"📖 TIÊU ĐỀ: {title}\n🔗 NGUỒN: {href}\n📝 NỘI DUNG TÓM TẮT: {text}")
+            
+        if results:
+            clean_search = "\n\n---\n\n".join(results)
+            logger.info(f"[web-search] DuckDuckGo search successful for '{query[:30]}' results={len(results)}")
+            return clean_search
+        return ""
+    except Exception as e:
+        logger.error(f"[web-search] DuckDuckGo search error: {e}")
+        return ""
+

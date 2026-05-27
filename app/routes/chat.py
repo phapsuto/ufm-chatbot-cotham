@@ -93,21 +93,28 @@ async def chat(req: ChatRequest):
     kb_has_strong_match = highest_score >= 0.6
     logger.info(f"[pipeline] Offline KB check: search_query='{search_query[:40]}' matches={len(kb_chunks)} highest_score={highest_score:.2f} (strong_match={kb_has_strong_match})")
     
-    # 4. Crawl HTML (Chỉ crawl nếu KB không đủ mạnh hoặc không có dữ liệu)
+    # 4. Crawl HTML hoặc Tìm kiếm tự do trên Internet nếu là câu hỏi ngoài lề
     html_contents = {}
     pdf_contents = {}
     routing = router_service.detect_intent(search_query)  # Dùng search_query để detect chính xác hơn
     intent = routing["intents"][0] if routing["intents"] else "general"
 
-    if not kb_has_strong_match and routing.get("urls"):
-        logger.info("[pipeline] KB match low/none, falling back to Web Crawler...")
-        html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
-        if html_contents:
-            all_html = "\n".join(html_contents.values())
-            pdf_links = pdf_service.extract_pdf_links(all_html)
-            if pdf_links:
-                max_pdfs = 2 if routing.get("need_pdf") else 1
-                pdf_contents = await pdf_service.read_pdfs(pdf_links, max_pdfs=max_pdfs)
+    if not kb_has_strong_match:
+        # Nếu là câu hỏi chung/tào lao không khớp tri thức của trường UFM
+        if intent == "general":
+            logger.info(f"[pipeline] Unrelated/General question detected. Triggering DuckDuckGo Internet Search for: '{message}'")
+            ddg_results = crawler_service.web_search_ddg(message)
+            if ddg_results:
+                html_contents["internet_search"] = ddg_results
+        elif routing.get("urls"):
+            logger.info("[pipeline] KB match low/none, falling back to Web Crawler...")
+            html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
+            if html_contents:
+                all_html = "\n".join(html_contents.values())
+                pdf_links = pdf_service.extract_pdf_links(all_html)
+                if pdf_links:
+                    max_pdfs = 2 if routing.get("need_pdf") else 1
+                    pdf_contents = await pdf_service.read_pdfs(pdf_links, max_pdfs=max_pdfs)
     else:
         logger.info("[pipeline] Strong KB match found, skipping Web Crawler!")
 

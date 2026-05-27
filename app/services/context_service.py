@@ -70,6 +70,9 @@ URL_KEYWORD_MAP = {
 
 def url_to_friendly_name(url: str) -> str:
     """Convert URL thành tên dễ đọc."""
+    if url == "internet_search":
+        return "Kết quả Tìm kiếm Internet"
+        
     parsed = urlparse(url)
     path = parsed.path or ""
     qs = parse_qs(parsed.query)
@@ -144,6 +147,16 @@ def build_context(
 
     # Score HTML sources
     for url, content in html_contents.items():
+        if url == "internet_search":
+            sources_with_score.append({
+                "url": url,
+                "title": "Kết quả Tìm kiếm Internet",
+                "type": "webpage",
+                "chars_used": len(content),
+                "relevance": 0.90,  # Điểm ưu tiên cao cho kết quả tìm kiếm internet thực tế
+            })
+            continue
+            
         score = _relevance_score(content, query)
         if len(content) > 80:
             title = url_to_friendly_name(url)
