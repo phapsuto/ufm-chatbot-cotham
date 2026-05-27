@@ -1,0 +1,81 @@
+# Chi tiết ngành đào tạo
+
+**Nguồn URL:** https://daotaosdh.ufm.edu.vn/ChiTietNganh.aspx?id=MKT
+**Thời gian cào:** 2026-05-28 00:38:08
+
+---
+
+Marketing
+GIỚI THIỆU CHƯƠNG TRÌNH NGÀNH MARKETING
+Chương trình đào tạo Thạc sĩ ngành Marketing tại Trường Đại học Tài chính – Marketing được xây dựng dựa trên triết lý giáo dục "Thực chất, đổi mới sáng tạo và hội nhập". Chương trình được thiết kế theo hệ thống tín chỉ, cập nhật liên tục để đáp ứng nhu cầu thực tiễn của doanh nghiệp và xã hội.
+Năm 2026, chương trình cung cấp hai định hướng đào tạo riêng biệt để người học lựa chọn phù hợp với mục tiêu nghề nghiệp:
+Định hướng Nghiên cứu:
+Tập trung vào năng lực nghiên cứu chuyên sâu, phát triển tư duy lý luận, phù hợp cho giảng viên, nghiên cứu viên hoặc người muốn học lên Tiến sĩ.
+Định hướng Ứng dụng:
+Tập trung vào kỹ năng thực hành, giải quyết vấn đề thực tiễn trong kinh doanh, phù hợp cho các nhà quản lý, điều hành doanh nghiệp.
+Thời gian đào tạo trung bình là
+02 năm
+(tối đa 04 năm) với tổng khối lượng kiến thức toàn khóa là
+61 tín chỉ
+Thông tin chi tiết chương trình đào tạo:
+Chương trình đào tạo trình độ thạc sĩ ngành Marketing - Mã ngành 8340115 - Viện Đào tạo Sau Đại học
+ĐIỀU KIỆN XÉT TUYỂN
+Ứng viên tham gia xét tuyển cần đáp ứng các tiêu chuẩn sau:
+Về văn bằng:
+Đã tốt nghiệp đại học ngành Marketing hoặc các ngành phù hợp/ngành gần/ngành khác (có bổ sung kiến thức) .
+Phương thức tuyển sinh:
+Xét tuyển dựa trên hồ sơ văn bằng, kết quả học tập đại học và năng lực ngoại ngữ.
+Môn xét tuyển:
+Đánh giá năng lực qua hai môn cơ sở ngành là
+Kinh tế học
+Nguyên lý Marketing
+Trình độ ngoại ngữ:
+Ứng viên phải đạt năng lực ngoại ngữ từ Bậc 3/6 trở lên theo Khung năng lực ngoại ngữ 6 bậc dùng cho Việt Nam hoặc sở hữu các văn bằng, chứng chỉ tương đương.
+Đối với ứng viên tốt nghiệp đại học không đúng chuyên ngành Marketing, Nhà trường tổ chức học bổ sung kiến thức trước khi xét tuyển:
+Ngành gần:
+Bổ sung 02 môn (5 tín chỉ), gồm: Kinh tế học (3 TC) và Nguyên lý Marketing (2 TC).
+Ngành khác:
+Bổ sung 04 môn (9 tín chỉ), gồm: Kinh tế học (3 TC), Nguyên lý Marketing (2 TC), Hành vi người tiêu dùng nâng cao (2 TC) và Nghiên cứu Marketing (2 TC).
+CƠ HỘI NGHỀ NGHIỆP
+Sau khi tốt nghiệp, Thạc sĩ Marketing có thể đảm nhiệm các vị trí:
+Nhóm Quản lý & Thực hành (Định hướng Ứng dụng):
+Giám đốc Marketing (CMO), Giám đốc Thương hiệu, Giám đốc Truyền thông, Giám đốc Dịch vụ khách hàng tại các tập đoàn đa quốc gia, doanh nghiệp trong và ngoài nước.
+Chuyên gia tư vấn chiến lược marketing, quản lý kênh phân phối, phát triển sản phẩm mới.
+Nhóm Nghiên cứu & Giảng dạy (Định hướng Nghiên cứu):
+Nghiên cứu viên cao cấp, chuyên gia phân tích thị trường tại các công ty nghiên cứu thị trường (Market Research Agency) hoặc các tổ chức kinh tế.
+Giảng viên giảng dạy chuyên ngành Marketing tại các trường Đại học, Cao đẳng.
+Tiếp tục nghiên cứu ở bậc học cao hơn (Tiến sĩ) trong và ngoài nước.
+CHÍNH SÁCH ƯU ĐÃI HỌC PHÍ
+Giảm 10% học phí đối với học viên là cựu sinh viên của Trường.
+Giảm 5% học phí đối với học viên có người thân đã và đang học cao học tại Trường
+Bạn muốn học ngành này?
+Đăng ký tư vấn hoặc xét tuyển ngay hôm nay để nhận thông tin mới nhất.
+Đăng ký tư vấn
+Hồ sơ trực tuyến
+Thông tin liên hệ
+Phòng D.006, 778 Nguyễn Kiệm, P.4, Q.PN, TP.HCM
+0283 997 4641
+daotaosdh@ufm.edu.vn
+Chương trình đào tạo khác
+Kế toán
+Thạc sĩ
+Kinh doanh quốc tế
+Thạc sĩ
+Kinh tế học
+Thạc sĩ
+Luật kinh tế
+Thạc sĩ
+Quản lý kinh tế
+Thạc sĩ
+Quản trị kinh doanh
+Thạc sĩ
+Tài chính - Ngân hàng
+Thạc sĩ
+Toán kinh tế
+Thạc sĩ
+Quản lý kinh tế
+Tiến sĩ
+Quản trị kinh doanh
+Tiến sĩ
+Tài chính - Ngân hàng
+Tiến sĩ
