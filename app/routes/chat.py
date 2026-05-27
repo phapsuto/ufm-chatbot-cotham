@@ -72,15 +72,29 @@ async def chat(req: ChatRequest):
 
     # 3. Tra cứu Offline KB trước (BM25 siêu tốc)
     from app.services import kb_service
-    kb_chunks = kb_service.search_kb(message, top_k=3)
+    # Mở rộng câu hỏi dựa vào ngữ cảnh bộ nhớ để tránh mất context khi hỏi tiếp (follow-up)
+    search_keywords = memory_service.get_search_expansion_keywords(session_id, message)
+    search_query = message
+    if search_keywords:
+        # Lọc các từ khóa chưa có trong câu hỏi hiện tại để tránh lặp từ vô ích
+        missing_keywords = [kw for kw in search_keywords.split() if kw.lower() not in message.lower()]
+        if missing_keywords:
+            search_query = f"{message} {' '.join(missing_keywords)}"
+            logger.info(f"[pipeline] Expanded query from '{message}' to '{search_query}'")
+
+    ctx = memory_service.get_or_create_session(session_id)["context"]
+    level = ctx.get("interested_level")
+    major = ctx.get("interested_major")
+
+    kb_chunks = kb_service.search_kb(search_query, top_k=5, level=level, major=major)
     highest_score = max(chunk["score"] for chunk in kb_chunks) if kb_chunks else 0.0
     kb_has_strong_match = highest_score >= 1.0
-    logger.info(f"[pipeline] Offline KB check: query='{message[:40]}' matches={len(kb_chunks)} highest_score={highest_score:.2f} (strong_match={kb_has_strong_match})")
+    logger.info(f"[pipeline] Offline KB check: search_query='{search_query[:40]}' matches={len(kb_chunks)} highest_score={highest_score:.2f} (strong_match={kb_has_strong_match})")
     
     # 4. Crawl HTML (Chỉ crawl nếu KB không đủ mạnh hoặc không có dữ liệu)
     html_contents = {}
     pdf_contents = {}
-    routing = router_service.detect_intent(message)
+    routing = router_service.detect_intent(search_query)  # Dùng search_query để detect chính xác hơn
     intent = routing["intents"][0] if routing["intents"] else "general"
 
     if not kb_has_strong_match and routing.get("urls"):
@@ -97,7 +111,7 @@ async def chat(req: ChatRequest):
 
     # 5. Build context + context summary (có pronoun_role)
     mem_summary = memory_service.get_context_summary(session_id)
-    context, sources_used = context_service.build_context(html_contents, pdf_contents, mem_summary, message)
+    context, sources_used = context_service.build_context(html_contents, pdf_contents, mem_summary, message, search_query=search_query, level=level, major=major)
 
     # 6. Pre-compute metadata
     # Nếu có kb_chunks với điểm cao, độ tự tin tự động đạt mức cao (1.0)

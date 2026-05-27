@@ -87,8 +87,8 @@ def _load_kb():
 # Khởi tạo lúc start
 _load_kb()
 
-def search_kb(query: str, top_k: int = 3) -> list[dict]:
-    """Tìm kiếm nội dung offline dựa vào câu hỏi, trả về list dict chứa content và score."""
+def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) -> list[dict]:
+    """Tìm kiếm nội dung offline dựa vào câu hỏi, trả về list dict chứa content và score (có áp dụng metadata boost)."""
     if not _bm25 or not _chunks:
         return []
         
@@ -96,7 +96,59 @@ def search_kb(query: str, top_k: int = 3) -> list[dict]:
     if not query_tokens:
         return []
         
-    scores = _bm25.get_scores(query_tokens)
+    raw_scores = _bm25.get_scores(query_tokens)
+    
+    # Áp dụng Metadata Boosting nếu có ngữ cảnh level hoặc major
+    scores = []
+    for i, chunk in enumerate(_chunks):
+        score = raw_scores[i]
+        
+        # Chỉ boost nếu score > 0 để tránh vô tình kéo các chunk không khớp lên
+        if score > 0 and (level or major):
+            first_line = chunk.splitlines()[0]
+            filename = first_line.replace("Nguồn: ", "").strip().lower()
+            
+            # 1. Khớp Level (Bậc đào tạo)
+            level_match = False
+            if level == "tien_si":
+                if any(k in filename for k in ["tiến sĩ", "tien si", "ts"]):
+                    level_match = True
+            elif level == "thac_si":
+                if any(k in filename for k in ["thạc sĩ", "thac si", "ths", "cao học", "cao hoc"]):
+                    level_match = True
+                    
+            # 2. Khớp Major (Ngành học)
+            major_match = False
+            if major:
+                major_clean = major.lower()
+                major_keywords = [major_clean]
+                if "quản trị kinh doanh" in major_clean:
+                    major_keywords.extend(["qtkd", "quản trị kinh doanh", "quan tri kinh doanh"])
+                elif "tài chính" in major_clean or "ngân hàng" in major_clean:
+                    major_keywords.extend(["tcnh", "tài chính", "ngân hàng", "tai chinh", "ngan hang"])
+                elif "kế toán" in major_clean:
+                    major_keywords.extend(["kế toán", "ke toan", "kt"])
+                elif "marketing" in major_clean:
+                    major_keywords.extend(["marketing", "mkt"])
+                elif "quản lý kinh tế" in major_clean:
+                    major_keywords.extend(["qlkt", "quản lý kinh tế", "quan ly kinh te"])
+                elif "luật kinh tế" in major_clean or "luật" in major_clean:
+                    major_keywords.extend(["lkt", "luật", "luat"])
+                elif "kinh doanh quốc tế" in major_clean:
+                    major_keywords.extend(["kdqt", "kinh doanh quốc tế", "kinh doanh quoc te"])
+                elif "toán kinh tế" in major_clean:
+                    major_keywords.extend(["tkt", "toán kinh tế", "toan kinh te"])
+                    
+                if any(k in filename for k in major_keywords):
+                    major_match = True
+                    
+            # Áp dụng hệ số nhân boost
+            if level_match and major_match:
+                score *= 3.0  # Ưu tiên tuyệt đối
+            elif level_match or major_match:
+                score *= 1.5
+                
+        scores.append(score)
     
     # Lấy top_k chunks có điểm cao nhất
     top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]

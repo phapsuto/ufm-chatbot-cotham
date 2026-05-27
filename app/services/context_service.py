@@ -135,6 +135,9 @@ def build_context(
     pdf_contents: dict[str, str],
     memory_summary: str,
     query: str,
+    search_query: str = None,
+    level: str = None,
+    major: str = None,
 ) -> tuple[str, list[dict]]:
     """Gom context với relevance scoring, trả về (context_string, sources_list)."""
     sources_with_score = []
@@ -165,7 +168,7 @@ def build_context(
             })
 
     # Tra cứu Offline Knowledge Base (ưu tiên cao nhất, luôn lục trong này trước)
-    kb_chunks = kb_service.search_kb(query, top_k=3)
+    kb_chunks = kb_service.search_kb(search_query or query, top_k=5, level=level, major=major)
     kb_content_parts = []
     kb_highest_score = 0.0
     if kb_chunks:
@@ -197,7 +200,8 @@ def build_context(
             content = pdf_contents.get(s["url"], "")
         else:
             content = s.get("content", "")
-        parts.append(f"[NGUỒN: {s['title']}]\n{content[:4000]}")
+        limit = 6000 if s["type"] == "database" else 4000
+        parts.append(f"[NGUỒN: {s['title']}]\n{content[:limit]}")
 
     # Add remaining sources with lower priority
     for s in sources_with_score[3:]:
@@ -207,7 +211,8 @@ def build_context(
             content = pdf_contents.get(s["url"], "")
         else:
             content = s.get("content", "")
-        parts.append(f"[NGUỒN: {s['title']}]\n{content[:2000]}")
+        limit = 4000 if s["type"] == "database" else 2000
+        parts.append(f"[NGUỒN: {s['title']}]\n{content[:limit]}")
 
     if memory_summary:
         parts.append(f"[NGỮ CẢNH HỘI THOẠI]\n{memory_summary}")

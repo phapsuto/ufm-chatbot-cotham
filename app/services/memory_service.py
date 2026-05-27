@@ -168,6 +168,48 @@ def update_pronoun_early(session_id: str, query: str) -> None:
         logger.info(f"[memory] early pronoun: xưng={pronoun['co_tham_xung']}, gọi={pronoun['co_tham_calls_user']}")
 
 
+def get_search_expansion_keywords(session_id: str, current_query: str) -> str:
+    """Trả về các từ khóa mở rộng tìm kiếm (ví dụ: 'tiến sĩ Quản trị kinh doanh') dựa trên ngữ cảnh."""
+    session = get_or_create_session(session_id)
+    ctx = session["context"]
+    
+    # 1. Tự động detect thêm từ câu hỏi hiện tại để bổ sung ngữ cảnh ngay lập tức
+    msg = current_query.lower()
+    current_level = None
+    if "thạc sĩ" in msg or "cao học" in msg:
+        current_level = "thạc sĩ"
+    elif "tiến sĩ" in msg or "phd" in msg:
+        current_level = "tiến sĩ"
+        
+    current_major = None
+    nganh_map = {
+        "tài chính": "Tài chính - Ngân hàng", "ngân hàng": "Tài chính - Ngân hàng",
+        "quản trị kinh doanh": "Quản trị kinh doanh", "kế toán": "Kế toán",
+        "marketing": "Marketing", "kinh tế học": "Kinh tế học",
+        "quản lý kinh tế": "Quản lý kinh tế", "luật": "Luật kinh tế",
+        "kinh doanh quốc tế": "Kinh doanh quốc tế", "toán kinh tế": "Toán kinh tế",
+    }
+    for kw, name in nganh_map.items():
+        if kw in msg:
+            current_major = name
+            break
+
+    # 2. Kết hợp với ngữ cảnh đã lưu trong bộ nhớ
+    level = current_level
+    if not level and ctx.get("interested_level"):
+        level = "thạc sĩ" if ctx["interested_level"] == "thac_si" else "tiến sĩ"
+        
+    major = current_major or ctx.get("interested_major")
+    
+    keywords = []
+    if level:
+        keywords.append(level)
+    if major:
+        keywords.append(major)
+        
+    return " ".join(keywords)
+
+
 def get_conversation_history(session_id: str, max_messages: int = 6) -> list[dict]:
     session = get_or_create_session(session_id)
     msgs = session["messages"][-max_messages:]
