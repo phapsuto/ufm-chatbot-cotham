@@ -127,33 +127,43 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
     if not query_tokens:
         return []
         
-    # 1. BM25 Search
+    # 1. Thu thập ứng cử viên từ BM25 (lấy top 20 Chunks)
     bm25_scores = _bm25.get_scores(query_tokens)
-    bm25_ranked = sorted(range(len(_chunks)), key=lambda i: bm25_scores[i], reverse=True)
-    bm25_ranks = {idx: rank for rank, idx in enumerate(bm25_ranked)}
+    top_bm25_indices = sorted(range(len(_chunks)), key=lambda i: bm25_scores[i], reverse=True)[:20]
     
-    # 2. Vector Search
-    vector_results = vector_service.semantic_search(query, top_k=top_k*3)
-    vector_score_map = {res["content"]: res["vector_score"] for res in vector_results}
-    
-    vector_scores_list = [vector_score_map.get(chunk, 0.0) for chunk in _chunks]
-    vector_ranked = sorted(range(len(_chunks)), key=lambda i: vector_scores_list[i], reverse=True)
-    vector_ranks = {idx: rank for rank, idx in enumerate(vector_ranked)}
-    
-    # 3. Kết hợp bằng Reciprocal Rank Fusion (RRF)
-    k = 60
-    scores = []
-    for i, chunk in enumerate(_chunks):
-        # Tính điểm RRF
-        if bm25_scores[i] > 0 or vector_scores_list[i] > 0:
-            rrf_score = 1.0 / (k + bm25_ranks[i]) + 1.0 / (k + vector_ranks[i])
-        else:
-            rrf_score = 0.0
+    candidate_chunks = {}
+    for idx in top_bm25_indices:
+        if bm25_scores[idx] > 0.0:
+            candidate_chunks[idx] = _chunks[idx]
             
-        score = rrf_score
+    # 2. Thu thập ứng cử viên từ Vector Search (lấy top 20 Chunks)
+    vector_results = vector_service.semantic_search(query, top_k=20)
+    # Ánh xạ từ content về index trong _chunks
+    chunk_index_map = {chunk: i for i, chunk in enumerate(_chunks)}
+    for res in vector_results:
+        content = res["content"]
+        if content in chunk_index_map:
+            idx = chunk_index_map[content]
+            candidate_chunks[idx] = content
+
+    if not candidate_chunks:
+        return []
+        
+    # Chuyển đổi thành danh sách các index và các chunk ứng cử viên thực tế
+    candidate_indices = list(candidate_chunks.keys())
+    candidate_texts = list(candidate_chunks.values())
+    
+    # 3. Reranking tất cả ứng cử viên bằng CrossEncoder (BGE-M3)
+    rerank_scores = reranker_service.rerank(query, candidate_texts)
+    
+    # 4. Áp dụng Metadata Boosting lên kết quả Rerank
+    final_results = []
+    for i, idx in enumerate(candidate_indices):
+        score = rerank_scores[i]
+        chunk = candidate_texts[i]
         
         # Áp dụng Metadata Boosting nếu có ngữ cảnh level hoặc major
-        if score > 0 and (level or major):
+        if level or major:
             first_line = chunk.splitlines()[0]
             filename = first_line.replace("Nguồn: ", "").strip().lower()
             
@@ -193,35 +203,16 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
                     
             # Áp dụng hệ số nhân boost
             if level_match and major_match:
-                score *= 3.0  # Ưu tiên tuyệt đối
+                score = min(1.0, score * 1.5)  # Ưu tiên cao nhất
             elif level_match or major_match:
-                score *= 1.5
+                score = min(1.0, score * 1.2)
                 
-        scores.append(score)
-    
-    # Lấy top_k * 3 chunks có điểm cao nhất từ Hybrid Search để Rerank
-    top_hybrid_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k * 3]
-    
-    hybrid_results = []
-    for i in top_hybrid_indices:
-        if scores[i] > 0.0:  # Đã có điểm RRF
-            hybrid_results.append(_chunks[i])
-            
-    if not hybrid_results:
-        return []
-        
-    # 4. Reranking bằng CrossEncoder (BGE-M3)
-    rerank_scores = reranker_service.rerank(query, hybrid_results)
-    
-    # Kết hợp lại với content và sort theo điểm Rerank
-    final_results = []
-    for i, content in enumerate(hybrid_results):
         final_results.append({
-            "content": content,
-            "score": rerank_scores[i]
+            "content": chunk,
+            "score": score
         })
         
-    # Trả về top_k kết quả sau khi đã Rerank
+    # Trả về top_k kết quả sau khi đã Rerank và Boost
     final_results = sorted(final_results, key=lambda x: x["score"], reverse=True)[:top_k]
     
     return final_results

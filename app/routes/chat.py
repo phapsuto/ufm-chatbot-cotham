@@ -99,15 +99,23 @@ async def chat(req: ChatRequest):
     routing = router_service.detect_intent(search_query)  # Dùng search_query để detect chính xác hơn
     intent = routing["intents"][0] if routing["intents"] else "general"
 
+    # Định nghĩa hàm kiểm tra xem câu hỏi có chứa từ khóa đặc thù UFM không
+    def is_ufm_related(text: str) -> bool:
+        keywords = ["ufm", "tài chính - marketing", "tài chính marketing", "tai chinh marketing", "cô thắm", "co tham", "sau đại học", "sau dai hoc", "trường mình", "truong minh", "khoa mình", "khoa minh", "chương trình mình", "chuong trinh minh"]
+        text_lower = text.lower()
+        return any(kw in text_lower for kw in keywords)
+
+    is_general = False
     if not kb_has_strong_match:
-        # Nếu là câu hỏi chung/tào lao không khớp tri thức của trường UFM
-        if intent == "general":
-            logger.info(f"[pipeline] Unrelated/General question detected. Triggering DuckDuckGo Internet Search for: '{message}'")
+        # Nếu điểm số khớp offline rất thấp, hoặc là câu hỏi chung/tào lao không liên quan trực tiếp đến UFM
+        if highest_score < 0.45 or intent == "general" or not is_ufm_related(message):
+            logger.info(f"[pipeline] Unrelated/General/Tào lao question detected (score={highest_score:.4f}, intent={intent}). Triggering DuckDuckGo Internet Search for: '{message}'")
             ddg_results = crawler_service.web_search_ddg(message)
             if ddg_results:
                 html_contents["internet_search"] = ddg_results
+            is_general = True
         elif routing.get("urls"):
-            logger.info("[pipeline] KB match low/none, falling back to Web Crawler...")
+            logger.info("[pipeline] KB match low but UFM-related. Falling back to Web Crawler...")
             html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
             if html_contents:
                 all_html = "\n".join(html_contents.values())
@@ -135,10 +143,10 @@ async def chat(req: ChatRequest):
     elapsed = time.time() - t0
     logger.info(f"[pipeline] prep={elapsed:.1f}s html={len(html_contents)} pdf={len(pdf_contents)} kb={len(kb_chunks)}")
 
-    # 7. Stream LLM response — pass context_summary for xưng hô
+    # 7. Stream LLM response — pass context_summary for xưng hô + is_general
     def generate():
         full_response = ""
-        for chunk in llm_service.get_response_stream(context, message, history, session_id, context_summary=mem_summary):
+        for chunk in llm_service.get_response_stream(context, message, history, session_id, context_summary=mem_summary, is_general=is_general):
             if chunk.startswith("__FULL__"):
                 full_response = chunk[8:]
                 continue

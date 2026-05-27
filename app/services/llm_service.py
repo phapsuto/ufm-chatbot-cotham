@@ -149,6 +149,7 @@ def get_response_stream(
     conversation_history: list[dict],
     session_id: str,
     context_summary: str = "",
+    is_general: bool = False,
 ) -> Generator:
     """Stream response từ Qwen3, lọc <think> tags."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -158,12 +159,26 @@ def get_response_stream(
     user_parts = []
     if context_summary:
         user_parts.append(f"[THÔNG TIN NGỮ CẢNH - ĐỌC TRƯỚC KHI TRẢ LỜI]\n{context_summary}")
-    user_parts.append(f"[NỘI DUNG TỪ WEBSITE UFM - daotaosdh.ufm.edu.vn]\n{context}")
+    
+    if is_general:
+        user_parts.append(f"[KẾT QUẢ TÌM KIẾM INTERNET]\n{context}")
+    else:
+        user_parts.append(f"[NỘI DUNG TỪ WEBSITE UFM - daotaosdh.ufm.edu.vn]\n{context}")
+        
     user_parts.append(f"[CÂU HỎI CỦA NGƯỜI DÙNG]\n{query}")
-    user_parts.append(
-        "[YÊU CẦU PHÂN TÍCH] Trả lời chi tiết, lập bảng biểu so sánh hoặc liệt kê đầy đủ danh mục học phần, "
-        "phân tích sâu sắc dựa trên nội dung từ website UFM ở trên. Không thêm thông tin ngoài lề không có căn cứ."
-    )
+    
+    if is_general:
+        user_parts.append(
+            "[YÊU CẦU TRẢ LỜI] Đây là câu hỏi xã giao, thảo luận tự do hoặc kiến thức tổng hợp ngoài lề. "
+            "Bạn hãy sử dụng Kết quả Tìm kiếm Internet (nếu có) cùng vốn hiểu biết thông thái của mình để trả lời "
+            "người học thật đầy đủ, chính xác, dí dỏm và thân thiện nhất dưới nhân cách Cô giáo Thắm miền Nam xưng hô ấm áp. "
+            "Sau đó, hãy khéo léo hỏi han xem họ có muốn tìm hiểu thông tin tuyển sinh Thạc sĩ/Tiến sĩ nào của UFM để cô hỗ trợ nhé!"
+        )
+    else:
+        user_parts.append(
+            "[YÊU CẦU PHÂN TÍCH] Trả lời chi tiết, lập bảng biểu so sánh hoặc liệt kê đầy đủ danh mục học phần, "
+            "phân tích sâu sắc dựa trên nội dung từ website UFM ở trên. Không tự bịa đặt số liệu học phí hay tuyển sinh không có trong tài liệu."
+        )
 
     messages.append({"role": "user", "content": "\n\n".join(user_parts)})
 

@@ -52,7 +52,7 @@ def generate_embedding(text: str) -> list[float]:
     return embedder.encode(text).tolist()
 
 def index_chunks(chunks: list[str], ids: list[str]) -> None:
-    """Thêm dữ liệu văn bản vào ChromaDB collection."""
+    """Thêm dữ liệu văn bản vào ChromaDB collection theo từng batch nhỏ."""
     if not collection or not chunks or len(chunks) != len(ids):
         return
         
@@ -63,16 +63,23 @@ def index_chunks(chunks: list[str], ids: list[str]) -> None:
             logger.info(f"[vector] ChromaDB already has {existing_count} chunks. Skipping indexing.")
             return
             
-        logger.info(f"[vector] Generating embeddings for {len(chunks)} chunks... This may take a moment.")
-        embeddings = [generate_embedding(c) for c in chunks]
+        logger.info(f"[vector] Generating embeddings and indexing {len(chunks)} chunks... This may take a moment.")
         
-        # Nạp dữ liệu vào DB
-        collection.add(
-            documents=chunks,
-            embeddings=embeddings,
-            ids=ids
-        )
-        logger.info(f"[vector] Successfully indexed {len(chunks)} chunks into ChromaDB.")
+        # Thêm theo từng batch nhỏ để tránh vượt quá giới hạn tối đa của ChromaDB (5461 items)
+        batch_size = 500
+        for i in range(0, len(chunks), batch_size):
+            batch_chunks = chunks[i:i+batch_size]
+            batch_ids = ids[i:i+batch_size]
+            batch_embeddings = [generate_embedding(c) for c in batch_chunks]
+            
+            collection.add(
+                documents=batch_chunks,
+                embeddings=batch_embeddings,
+                ids=batch_ids
+            )
+            logger.info(f"[vector] Indexed batch {i//batch_size + 1}/{-(-len(chunks)//batch_size)}")
+            
+        logger.info(f"[vector] Successfully indexed all {len(chunks)} chunks into ChromaDB.")
     except Exception as e:
         logger.error(f"[vector] Error indexing chunks: {e}")
 

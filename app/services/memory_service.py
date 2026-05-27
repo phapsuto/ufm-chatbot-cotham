@@ -50,6 +50,17 @@ def detect_pronoun_role(query: str) -> dict:
     """
     q = query.lower().strip()
 
+    # User tự xưng "cô", "thầy", "chú", "bác" (Người lớn tuổi, giảng viên)
+    senior_patterns = {
+        "cô": ["cô đang", "cô muốn", "cô hỏi", "cô cần", "hướng dẫn cô", "cho cô hỏi", "cô quan tâm", "cô tốt nghiệp"],
+        "thầy": ["thầy đang", "thầy muốn", "thầy hỏi", "thầy cần", "hướng dẫn thầy", "cho thầy hỏi", "thầy quan tâm", "thầy tốt nghiệp"],
+        "chú": ["chú đang", "chú muốn", "chú hỏi", "chú cần", "hướng dẫn chú", "cho chú hỏi", "chú quan tâm", "chú tốt nghiệp"],
+        "bác": ["bác đang", "bác muốn", "bác hỏi", "bác cần", "hướng dẫn bác", "cho bác hỏi", "bác quan tâm", "bác tốt nghiệp"]
+    }
+    for title, patterns in senior_patterns.items():
+        if any(p in q for p in patterns) or q.startswith(f"{title} "):
+            return {"user_calls_self": title, "co_tham_calls_user": title, "co_tham_xung": "em"}
+
     # User tự xưng "em" → là học viên → Cô Thắm xưng "cô", gọi "em"
     em_patterns = [
         "em tốt nghiệp", "em đang", "em muốn", "em học", "em làm",
