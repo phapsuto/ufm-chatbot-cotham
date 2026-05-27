@@ -164,14 +164,25 @@ ufm-chatbot-cotham/
 ## 🛠️ Hướng dẫn Cài đặt & Vận hành
 
 > **⚠️ LƯU Ý QUAN TRỌNG VỀ AI MODELS:**
-> Nhằm tối ưu hóa dung lượng dự án trên GitHub, các mô hình Trí tuệ Nhân tạo phục vụ tìm kiếm ngữ nghĩa (như mô hình nhúng `dangvantuan/vietnamese-embedding` và mô hình Reranker `BAAI/bge-reranker-v2-m3` dung lượng hơn 2GB) **KHÔNG ĐƯỢC ĐẨY LÊN GITHUB**. 
-> Bạn **không cần phải tải thủ công**. Trong lần khởi chạy ứng dụng **ĐẦU TIÊN**, hệ thống sẽ tự động kết nối với Hugging Face Hub để tải toàn bộ các mô hình này về lưu trữ ngầm tại máy (trong thư mục `.cache`). Do đó, vui lòng kiên nhẫn chờ đợi vài phút và đảm bảo kết nối Internet ổn định ở lần boot đầu tiên.
+> Nhằm tối ưu hóa dung lượng dự án trên GitHub, các mô hình Trí tuệ Nhân tạo phục vụ tìm kiếm ngữ nghĩa (như mô hình nhúng `dangvantuan/vietnamese-embedding` và mô hình Reranker `BAAI/bge-reranker-v2-m3` dung lượng hơn 2GB) **KHÔNG ĐƯỢC ĐẨY LÊN GITHUB**.
+>
+> 🚀 **Cơ Chế Tải Tự Động & Tăng Tốc Tải 10x (hf_transfer):**
+> Bạn không cần tải thủ công. Lần đầu chạy app, hệ thống tự động tải từ Hugging Face Hub. Để tăng tốc độ tải lên gấp 10 lần (đặc biệt khi tải file mô hình Reranker 2GB từ máy chủ quốc tế), bạn chỉ cần bật biến môi trường trước khi chạy ứng dụng:
+> ```bash
+> export HF_HUB_ENABLE_HF_TRANSFER=1
+> ```
+> *(Thư viện `hf_transfer` lập trình bằng Rust sẽ tự động kích hoạt tải đa luồng tốc độ cao).*
+>
+> 💻 **Tự Động Tăng Tốc Phần Cứng (Apple Silicon MPS / Nvidia CUDA):**
+> Lõi Reranker mới được viết bằng Transformers gốc, tự động phát hiện và kích hoạt phần cứng đồ họa:
+> *   **macOS (M1/M2/M3...):** Kích hoạt bộ gia tốc **Apple Silicon GPU (MPS)**.
+> *   **Windows/Linux (Nvidia GPU):** Kích hoạt bộ gia tốc **CUDA**.
+> *   **CPU:** Tự động fallback chạy bằng CPU nếu máy không có GPU rời/tích hợp.
 
 ### Yêu cầu Hệ thống
 *   Hệ điều hành hỗ trợ: Linux (Ubuntu/CentOS), macOS, Windows.
 *   Đã cài đặt **Docker** và **Docker Compose** (Khuyên dùng) hoặc **Python 3.10+**.
 
----
 
 ### Cách 1: Triển khai nhanh bằng Docker & Docker Compose (Khuyên dùng)
 
