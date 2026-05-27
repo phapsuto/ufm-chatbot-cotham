@@ -18,10 +18,16 @@ except ImportError:
 embedder = None
 if SentenceTransformer:
     try:
-        logger.info("[vector] Loading Vietnamese Embedding Model (dangvantuan/vietnamese-embedding)...")
-        embedder = SentenceTransformer("dangvantuan/vietnamese-embedding")
+        logger.info("[vector] Loading Vietnamese Embedding Model (local files only)...")
+        # local_files_only=True chặn hoàn toàn việc kiểm tra update online
+        embedder = SentenceTransformer("dangvantuan/vietnamese-embedding", local_files_only=True)
     except Exception as e:
-        logger.error(f"[vector] Failed to load embedding model: {e}")
+        logger.warning(f"[vector] Offline loading failed, trying online fallback... Error: {e}")
+        try:
+            embedder = SentenceTransformer("dangvantuan/vietnamese-embedding")
+        except Exception as ex:
+            logger.error(f"[vector] Failed to load embedding model online: {ex}")
+
 
 # Thiết lập thư mục lưu trữ Vector DB
 DB_DIR = Path(__file__).resolve().parent.parent / "database" / "chroma_db"

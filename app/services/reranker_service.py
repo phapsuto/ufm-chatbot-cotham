@@ -8,8 +8,16 @@ class CustomCrossEncoder:
     def __init__(self, model_name: str):
         try:
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
-            logger.info(f"[reranker] Loading {model_name} with native Transformers...")
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            logger.info(f"[reranker] Loading {model_name} with native Transformers (local files only)...")
+            
+            # local_files_only=True chặn hoàn toàn việc kiểm tra update online
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+                self.model = AutoModelForSequenceClassification.from_pretrained(model_name, local_files_only=True)
+            except Exception as ex:
+                logger.warning(f"[reranker] Local files not found, fallback to online download: {ex}")
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
             
             # Sử dụng GPU Apple Silicon (MPS) nếu có trên Mac, nếu không dùng CPU
             if torch.backends.mps.is_available():
@@ -22,12 +30,13 @@ class CustomCrossEncoder:
                 self.device = torch.device("cpu")
                 logger.info("[reranker] Using CPU for inference.")
                 
-            self.model = AutoModelForSequenceClassification.from_pretrained(model_name).to(self.device)
+            self.model = self.model.to(self.device)
             self.model.eval()
             self.loaded = True
         except Exception as e:
             logger.error(f"[reranker] Failed to load model {model_name}: {e}")
             self.loaded = False
+
 
     def predict(self, pairs: list[list[str]]) -> list[float]:
         if not self.loaded:
