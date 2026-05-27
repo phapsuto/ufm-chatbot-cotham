@@ -97,6 +97,32 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
     if not _bm25 or not _chunks:
         return []
         
+    query_lower = query.lower()
+    
+    # 1. Tự động phát hiện và ghi đè Level dựa trên câu hỏi thực tế
+    if any(k in query_lower for k in ["tiến sĩ", "tiến sỹ", "tien si", "tien sy", "nghiên cứu sinh", "ncs", "luận án"]):
+        level = "tien_si"
+    elif any(k in query_lower for k in ["thạc sĩ", "thạc sỹ", "thac si", "thac sy", "cao học", "cao hoc", "luận văn"]):
+        level = "thac_si"
+        
+    # 2. Tự động phát hiện và ghi đè Major dựa trên câu hỏi thực tế
+    if any(k in query_lower for k in ["quản trị kinh doanh", "qtkd"]):
+        major = "quản trị kinh doanh"
+    elif any(k in query_lower for k in ["tài chính", "ngân hàng", "tcnh"]):
+        major = "tài chính ngân hàng"
+    elif any(k in query_lower for k in ["kế toán", "kt"]):
+        major = "kế toán"
+    elif any(k in query_lower for k in ["marketing", "mkt"]):
+        major = "marketing"
+    elif any(k in query_lower for k in ["quản lý kinh tế", "qlkt"]):
+        major = "quản lý kinh tế"
+    elif any(k in query_lower for k in ["luật kinh tế", "luật", "lkt"]):
+        major = "luật kinh tế"
+    elif any(k in query_lower for k in ["kinh doanh quốc tế", "kdqt"]):
+        major = "kinh doanh quốc tế"
+    elif any(k in query_lower for k in ["toán kinh tế", "tkt"]):
+        major = "toán kinh tế"
+
     query_tokens = _tokenize(query)
     if not query_tokens:
         return []

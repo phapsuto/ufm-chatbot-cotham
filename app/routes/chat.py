@@ -89,7 +89,8 @@ async def chat(req: ChatRequest):
 
     kb_chunks = kb_service.search_kb(search_query, top_k=5, level=level, major=major)
     highest_score = max(chunk["score"] for chunk in kb_chunks) if kb_chunks else 0.0
-    kb_has_strong_match = highest_score >= 1.0
+    # Ngưỡng khớp mạnh từ Reranker BGE-M3 (xác suất 0.0 đến 1.0) thường từ >= 0.6
+    kb_has_strong_match = highest_score >= 0.6
     logger.info(f"[pipeline] Offline KB check: search_query='{search_query[:40]}' matches={len(kb_chunks)} highest_score={highest_score:.2f} (strong_match={kb_has_strong_match})")
     
     # 4. Crawl HTML (Chỉ crawl nếu KB không đủ mạnh hoặc không có dữ liệu)
