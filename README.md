@@ -163,6 +163,10 @@ ufm-chatbot-cotham/
 
 ## 🛠️ Hướng dẫn Cài đặt & Vận hành
 
+> **⚠️ LƯU Ý QUAN TRỌNG VỀ AI MODELS:**
+> Nhằm tối ưu hóa dung lượng dự án trên GitHub, các mô hình Trí tuệ Nhân tạo phục vụ tìm kiếm ngữ nghĩa (như mô hình nhúng `dangvantuan/vietnamese-embedding` và mô hình Reranker `BAAI/bge-reranker-v2-m3` dung lượng hơn 2GB) **KHÔNG ĐƯỢC ĐẨY LÊN GITHUB**. 
+> Bạn **không cần phải tải thủ công**. Trong lần khởi chạy ứng dụng **ĐẦU TIÊN**, hệ thống sẽ tự động kết nối với Hugging Face Hub để tải toàn bộ các mô hình này về lưu trữ ngầm tại máy (trong thư mục `.cache`). Do đó, vui lòng kiên nhẫn chờ đợi vài phút và đảm bảo kết nối Internet ổn định ở lần boot đầu tiên.
+
 ### Yêu cầu Hệ thống
 *   Hệ điều hành hỗ trợ: Linux (Ubuntu/CentOS), macOS, Windows.
 *   Đã cài đặt **Docker** và **Docker Compose** (Khuyên dùng) hoặc **Python 3.10+**.
