@@ -5,6 +5,8 @@ import math
 import logging
 from pathlib import Path
 from collections import Counter
+from app.services import vector_service
+from app.services import reranker_service
 
 logger = logging.getLogger("ufm-chatbot")
 
@@ -48,6 +50,7 @@ class SimpleBM25:
         return scores
 
 _chunks = []
+_chunk_ids = []
 _bm25 = None
 
 def _tokenize(text: str) -> list[str]:
@@ -75,6 +78,7 @@ def _load_kb():
                 if len(p) > 100:  # Bỏ qua đoạn quá ngắn
                     chunk = f"Nguồn: {file_path.name}\nNội dung: {p}"
                     _chunks.append(chunk)
+                    _chunk_ids.append(f"{file_path.name}_{len(_chunks)}")
                     docs.append(_tokenize(p))
             total_files += 1
         except Exception as e:
@@ -83,12 +87,13 @@ def _load_kb():
     if docs:
         _bm25 = SimpleBM25(docs)
         logger.info(f"[kb] Loaded {total_files} offline PDFs ({len(_chunks)} chunks)")
+        vector_service.index_chunks(_chunks, _chunk_ids)
 
 # Khởi tạo lúc start
 _load_kb()
 
 def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) -> list[dict]:
-    """Tìm kiếm nội dung offline dựa vào câu hỏi, trả về list dict chứa content và score (có áp dụng metadata boost)."""
+    """Tìm kiếm nội dung offline dựa vào câu hỏi, sử dụng Hybrid Search (BM25 + Vector) và metadata boost."""
     if not _bm25 or not _chunks:
         return []
         
@@ -96,14 +101,32 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
     if not query_tokens:
         return []
         
-    raw_scores = _bm25.get_scores(query_tokens)
+    # 1. BM25 Search
+    bm25_scores = _bm25.get_scores(query_tokens)
+    bm25_ranked = sorted(range(len(_chunks)), key=lambda i: bm25_scores[i], reverse=True)
+    bm25_ranks = {idx: rank for rank, idx in enumerate(bm25_ranked)}
     
-    # Áp dụng Metadata Boosting nếu có ngữ cảnh level hoặc major
+    # 2. Vector Search
+    vector_results = vector_service.semantic_search(query, top_k=top_k*3)
+    vector_score_map = {res["content"]: res["vector_score"] for res in vector_results}
+    
+    vector_scores_list = [vector_score_map.get(chunk, 0.0) for chunk in _chunks]
+    vector_ranked = sorted(range(len(_chunks)), key=lambda i: vector_scores_list[i], reverse=True)
+    vector_ranks = {idx: rank for rank, idx in enumerate(vector_ranked)}
+    
+    # 3. Kết hợp bằng Reciprocal Rank Fusion (RRF)
+    k = 60
     scores = []
     for i, chunk in enumerate(_chunks):
-        score = raw_scores[i]
+        # Tính điểm RRF
+        if bm25_scores[i] > 0 or vector_scores_list[i] > 0:
+            rrf_score = 1.0 / (k + bm25_ranks[i]) + 1.0 / (k + vector_ranks[i])
+        else:
+            rrf_score = 0.0
+            
+        score = rrf_score
         
-        # Chỉ boost nếu score > 0 để tránh vô tình kéo các chunk không khớp lên
+        # Áp dụng Metadata Boosting nếu có ngữ cảnh level hoặc major
         if score > 0 and (level or major):
             first_line = chunk.splitlines()[0]
             filename = first_line.replace("Nguồn: ", "").strip().lower()
@@ -150,15 +173,29 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
                 
         scores.append(score)
     
-    # Lấy top_k chunks có điểm cao nhất
-    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+    # Lấy top_k * 3 chunks có điểm cao nhất từ Hybrid Search để Rerank
+    top_hybrid_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k * 3]
     
-    results = []
-    for i in top_indices:
-        if scores[i] > 0.5:  # Ngưỡng tối thiểu
-            results.append({
-                "content": _chunks[i],
-                "score": scores[i]
-            })
+    hybrid_results = []
+    for i in top_hybrid_indices:
+        if scores[i] > 0.0:  # Đã có điểm RRF
+            hybrid_results.append(_chunks[i])
             
-    return results
+    if not hybrid_results:
+        return []
+        
+    # 4. Reranking bằng CrossEncoder (BGE-M3)
+    rerank_scores = reranker_service.rerank(query, hybrid_results)
+    
+    # Kết hợp lại với content và sort theo điểm Rerank
+    final_results = []
+    for i, content in enumerate(hybrid_results):
+        final_results.append({
+            "content": content,
+            "score": rerank_scores[i]
+        })
+        
+    # Trả về top_k kết quả sau khi đã Rerank
+    final_results = sorted(final_results, key=lambda x: x["score"], reverse=True)[:top_k]
+    
+    return final_results

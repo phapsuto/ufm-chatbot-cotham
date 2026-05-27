@@ -22,3 +22,7 @@ opencv-python-headless>=4.10.0
 Pillow>=10.0.0
 numpy>=1.24.0
 underthesea>=6.8.0
+
+# Vector Search & Semantic Embeddings
+chromadb>=0.4.22
+sentence-transformers>=2.3.1

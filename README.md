@@ -18,10 +18,12 @@ graph TD
     Query --> QACache{QA Semantic Cache<br/>SequenceMatcher >= 90%?}
     QACache -- Yes (HIT) --> InstantReply[Phản hồi tức thì trong 0s] --> End([Trả kết quả])
     QACache -- No (MISS) --> UndertheseaNLP[Underthesea NLP<br/>Word Segmentation / Tokenize]
-    UndertheseaNLP --> SearchKB[Truy xuất Offline KB<br/>Simple BM25 Search]
-    SearchKB --> MatchBoost{Metadata Boosting<br/>Khớp Bậc học / Ngành?}
+    UndertheseaNLP --> HybridSearch[Truy xuất Hybrid Search<br/>1. BM25 Offline KB<br/>2. ChromaDB Semantic Vector]
+    HybridSearch --> RRF[Hợp nhất Reciprocal Rank Fusion - RRF]
+    RRF --> Rerank[CrossEncoder Reranker BGE-M3<br/>Chấm điểm & Sắp xếp lại]
+    Rerank --> MatchBoost{Metadata Boosting<br/>Khớp Bậc học / Ngành?}
     MatchBoost -- Yes --> ApplyBoost[Nhân điểm số 1.5x - 3.0x] --> ScoreThreshold
-    MatchBoost -- No --> ScoreThreshold{Điểm BM25 > 0.5?}
+    MatchBoost -- No --> ScoreThreshold{Điểm RRF > 0.0?}
     ScoreThreshold -- Yes (HIT) --> LLMInput[Nạp Ngữ cảnh KB vào Prompt]
     ScoreThreshold -- No (MISS) --> LiveWeb[Live Web Crawler<br/>daotaosdh.ufm.edu.vn]
     LiveWeb --> PDFOCR{Phát hiện file PDF?}
@@ -41,13 +43,17 @@ Hệ thống sử dụng thư viện NLP tiếng Việt chuyên sâu `underthese
 *   **Vấn đề:** Các thuật toán tìm kiếm truyền thống sẽ tách rời các từ đơn lẻ (ví dụ: *"sinh"* và *"viên"*), dẫn đến giảm độ chính xác khi tính tần suất từ.
 *   **Giải pháp:** NLP Engine tự động chuyển đổi văn bản sang dạng từ ghép nối bằng ký tự gạch dưới (ví dụ: `"sinh_viên"`, `"học_phí"`, `"tài_chính"`, `"ngân_hàng"`) trước khi tính điểm tương đồng, giúp việc hiểu ngữ nghĩa đạt độ chính xác 100%.
 
-### 2. Thuật Toán RAG BM25 & Metadata Boosting
-Hệ thống lưu trữ 13 Quyết định chương trình đào tạo offline dưới dạng Markdown trong RAM. Khi học viên đưa ra câu hỏi:
-1.  Câu hỏi được tokenize bằng `underthesea` và chạy qua thuật toán xếp hạng tìm kiếm **BM25**.
-2.  **Metadata Boosting (Tối ưu hóa ngữ cảnh kế tiếp):** Hệ thống trích xuất thông tin về **Bậc đào tạo** (Thạc sĩ, Tiến sĩ) và **Ngành học** đang quan tâm từ lịch sử trò chuyện để điều chỉnh trọng số điểm số:
+### 2. Thuật Toán Hybrid RAG (BM25 + Semantic Vector) & BGE-M3 Reranker
+Hệ thống lưu trữ 13 Quyết định chương trình đào tạo offline dưới dạng Markdown và được lập chỉ mục (index) đồng bộ. Khi học viên đưa ra câu hỏi:
+1.  **Hybrid Search (Truy xuất kết hợp):** Câu hỏi được tìm kiếm đồng thời trên 2 động cơ:
+    *   Thuật toán xếp hạng từ khóa **BM25** (Tìm kiếm chính xác).
+    *   Bộ nhớ Vector **ChromaDB** kết hợp mô hình nhúng tiếng Việt `dangvantuan/vietnamese-embedding` (Tìm kiếm ngữ nghĩa).
+2.  **Reciprocal Rank Fusion (RRF):** Kết quả từ 2 động cơ được hợp nhất và tính điểm RRF để lấy ra top các đoạn văn bản tiềm năng nhất.
+3.  **CrossEncoder Reranker (BGE-M3):** Hệ thống nạp kết quả RRF vào mô hình AI Reranker siêu chuẩn xác `BAAI/bge-reranker-v2-m3`. Mô hình này sẽ chấm điểm lại (Re-score) độ liên quan giữa câu hỏi và đoạn văn bản để lọc ra các kết quả chính xác 100%.
+4.  **Metadata Boosting (Tối ưu hóa ngữ cảnh kế tiếp):** Hệ thống trích xuất thông tin về **Bậc đào tạo** (Thạc sĩ, Tiến sĩ) và **Ngành học** đang quan tâm từ lịch sử trò chuyện để điều chỉnh trọng số điểm số:
     *   **Boost 3.0x:** Nếu chunk dữ liệu khớp *cả* bậc đào tạo và ngành học so với tên file nguồn.
     *   **Boost 1.5x:** Nếu chunk dữ liệu khớp *một trong hai* yếu tố (chỉ khớp bậc đào tạo hoặc ngành học).
-3.  **Ngưỡng tin cậy (Confidence Threshold):** Chỉ các chunk có điểm số sau boost $> 0.5$ mới được nạp làm ngữ cảnh cho LLM. Nếu không có chunk nào đạt yêu cầu, hệ thống tự động kích hoạt **Live Web Crawler** để thu thập thông tin mới nhất từ website chính thức của trường.
+5.  **Ngưỡng tin cậy (Confidence Threshold):** Chỉ các chunk có điểm số sau boost đạt chuẩn mới được nạp làm ngữ cảnh cho LLM. Nếu không có chunk nào đạt yêu cầu, hệ thống tự động kích hoạt **Live Web Crawler** để thu thập thông tin mới nhất từ website chính thức của trường.
 
 ---
 
