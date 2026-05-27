@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     FPT_CLOUD_API_KEY: str = ""
     FPT_CLOUD_BASE_URL: str = "https://mkp-api.fptcloud.com/v1"
     FPT_CLOUD_DEFAULT_MODEL: str = "Qwen3-32B"
+    GEMINI_API_KEY: str = ""
+    GEMINI_DEFAULT_MODEL: str = "gemini-flash-latest"
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 2048
     LLM_STREAM: bool = True

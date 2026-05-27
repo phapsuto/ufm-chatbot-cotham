@@ -1,9 +1,11 @@
-"""app/services/llm_service.py — Gọi FPT Cloud Qwen3-32B (v3 — persona nâng cao)"""
+"""app/services/llm_service.py — Gọi Gemini / FPT Cloud (v4 — RAG + Gemini)"""
 import json
 import logging
 from typing import Generator
 
 from openai import OpenAI
+from google import genai
+from google.genai import types
 from app.config import settings
 
 logger = logging.getLogger("ufm-chatbot")
@@ -140,6 +142,14 @@ Các ngành tiến sĩ UFM: Quản trị kinh doanh, Tài chính - Ngân hàng, 
 
 /no_think"""
 
+_gemini_client = None
+if settings.GEMINI_API_KEY:
+    try:
+        _gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        logger.info(f"[llm] Google GenAI SDK initialized with model {settings.GEMINI_DEFAULT_MODEL}")
+    except Exception as e:
+        logger.error(f"[llm] Failed to initialize Google GenAI SDK: {e}")
+
 _client = OpenAI(api_key=settings.FPT_CLOUD_API_KEY, base_url=settings.FPT_CLOUD_BASE_URL)
 
 
@@ -151,11 +161,7 @@ def get_response_stream(
     context_summary: str = "",
     is_general: bool = False,
 ) -> Generator:
-    """Stream response từ Qwen3, lọc <think> tags."""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend(conversation_history)
-
-    # Build user message với context summary (xưng hô + tên + tuổi) ở đầu
+    """Stream response từ Gemini (ưu tiên) hoặc Qwen3/Gemma-4 fallback."""
     user_parts = []
     if context_summary:
         user_parts.append(f"[THÔNG TIN NGỮ CẢNH - ĐỌC TRƯỚC KHI TRẢ LỜI]\n{context_summary}")
@@ -180,7 +186,44 @@ def get_response_stream(
             "phân tích sâu sắc dựa trên nội dung từ website UFM ở trên. Không tự bịa đặt số liệu học phí hay tuyển sinh không có trong tài liệu."
         )
 
-    messages.append({"role": "user", "content": "\n\n".join(user_parts)})
+    user_prompt = "\n\n".join(user_parts)
+
+    if _gemini_client:
+        try:
+            logger.info(f"[llm] Calling Gemini streaming: model={settings.GEMINI_DEFAULT_MODEL}...")
+            gemini_contents = []
+            for msg in conversation_history:
+                role = "user" if msg["role"] == "user" else "model"
+                gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+            
+            gemini_contents.append({"role": "user", "parts": [{"text": user_prompt}]})
+            
+            response_stream = _gemini_client.models.generate_content_stream(
+                model=settings.GEMINI_DEFAULT_MODEL,
+                contents=gemini_contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.5,
+                    max_output_tokens=settings.LLM_MAX_TOKENS,
+                )
+            )
+            
+            full_response = ""
+            for chunk in response_stream:
+                if chunk.text:
+                    full_response += chunk.text
+                    yield json.dumps({"content": chunk.text, "session_id": session_id})
+                    
+            logger.info(f"[llm-gemini] response success chars={len(full_response)}")
+            yield "__FULL__" + full_response
+            return
+        except Exception as e:
+            logger.error(f"[llm-gemini] ERROR: {e}, falling back to FPT Cloud...")
+
+    # Fallback to FPT Cloud
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(conversation_history)
+    messages.append({"role": "user", "content": user_prompt})
 
     try:
         stream = _client.chat.completions.create(
@@ -232,6 +275,21 @@ def get_response_stream(
 
 def get_quick_response(prompt: str, max_tokens: int = 200) -> str:
     """Gọi LLM nhanh cho task nhỏ (suggestions, etc.)."""
+    if _gemini_client:
+        try:
+            resp = _gemini_client.models.generate_content(
+                model=settings.GEMINI_DEFAULT_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction="Bạn là trợ lý giúp đề xuất câu hỏi tiếp theo ngắn gọn. Chỉ trả về các câu hỏi, không giải thích.",
+                    temperature=0.3,
+                    max_output_tokens=max_tokens,
+                )
+            )
+            return resp.text.strip()
+        except Exception as e:
+            logger.error(f"[llm-quick-gemini] ERROR: {e}, falling back to FPT Cloud...")
+
     try:
         resp = _client.chat.completions.create(
             model=settings.FPT_CLOUD_DEFAULT_MODEL,

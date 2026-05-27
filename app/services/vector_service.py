@@ -51,26 +51,54 @@ def generate_embedding(text: str) -> list[float]:
     # sentence-transformers trả về numpy array, cần chuyển sang list cho ChromaDB
     return embedder.encode(text).tolist()
 
+def _calculate_chunks_hash(chunks: list[str]) -> str:
+    """Tính toán mã băm SHA-256 của danh sách chunk để phát hiện thay đổi nội dung."""
+    import hashlib
+    hasher = hashlib.sha256()
+    for chunk in chunks:
+        hasher.update(chunk.encode('utf-8'))
+    return hasher.hexdigest()
+
 def index_chunks(chunks: list[str], ids: list[str]) -> None:
-    """Thêm dữ liệu văn bản vào ChromaDB collection theo từng batch nhỏ."""
+    """Thêm dữ liệu văn bản vào ChromaDB collection với kiểm tra hash chống nạp lại trùng."""
     if not collection or not chunks or len(chunks) != len(ids):
         return
         
     try:
-        # Kiểm tra dữ liệu hiện có để tránh nạp trùng
+        current_hash = _calculate_chunks_hash(chunks)
+        # Lấy metadata hiện có từ collection
+        coll_metadata = collection.metadata or {}
+        saved_hash = coll_metadata.get("chunks_hash")
         existing_count = collection.count()
-        if existing_count >= len(chunks):
-            logger.info(f"[vector] ChromaDB already has {existing_count} chunks. Skipping indexing.")
+        
+        # Nếu hash khớp và số lượng chunks khớp, bỏ qua re-indexing cực kỳ an toàn và nhanh chóng
+        if saved_hash == current_hash and existing_count == len(chunks):
+            logger.info(f"[vector] ChromaDB is up-to-date with {existing_count} chunks (hash: {saved_hash[:8]}). Skipping indexing.")
             return
             
-        logger.info(f"[vector] Generating embeddings and indexing {len(chunks)} chunks... This may take a moment.")
+        logger.info(f"[vector] Re-indexing ChromaDB with {len(chunks)} chunks (old count: {existing_count}, old hash: {str(saved_hash)[:8]})...")
+        
+        # Xóa sạch các tài liệu cũ để tránh trùng lặp
+        if existing_count > 0:
+            try:
+                all_docs = collection.get()
+                if all_docs and 'ids' in all_docs and all_docs['ids']:
+                    collection.delete(ids=all_docs['ids'])
+                    logger.info("[vector] Cleared existing ChromaDB chunks to avoid duplicates.")
+            except Exception as del_err:
+                logger.warning(f"[vector] Failed to clear collection before indexing: {del_err}")
         
         # Thêm theo từng batch nhỏ để tránh vượt quá giới hạn tối đa của ChromaDB (5461 items)
         batch_size = 500
         for i in range(0, len(chunks), batch_size):
             batch_chunks = chunks[i:i+batch_size]
             batch_ids = ids[i:i+batch_size]
-            batch_embeddings = [generate_embedding(c) for c in batch_chunks]
+            
+            # Sử dụng batch encoding cực nhanh thay vì lặp từng phần tử trên CPU
+            if embedder is not None:
+                batch_embeddings = embedder.encode(batch_chunks, batch_size=128, show_progress_bar=False).tolist()
+            else:
+                batch_embeddings = [[] for _ in batch_chunks]
             
             collection.add(
                 documents=batch_chunks,
@@ -79,7 +107,11 @@ def index_chunks(chunks: list[str], ids: list[str]) -> None:
             )
             logger.info(f"[vector] Indexed batch {i//batch_size + 1}/{-(-len(chunks)//batch_size)}")
             
-        logger.info(f"[vector] Successfully indexed all {len(chunks)} chunks into ChromaDB.")
+        # Cập nhật hash mới vào metadata của collection
+        new_metadata = {k: v for k, v in coll_metadata.items() if not k.startswith("hnsw:")}
+        new_metadata["chunks_hash"] = current_hash
+        collection.modify(metadata=new_metadata)
+        logger.info(f"[vector] Successfully indexed all {len(chunks)} chunks into ChromaDB (new hash: {current_hash[:8]}).")
     except Exception as e:
         logger.error(f"[vector] Error indexing chunks: {e}")
 
