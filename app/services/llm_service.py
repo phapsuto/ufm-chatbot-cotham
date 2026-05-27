@@ -189,23 +189,28 @@ def get_response_stream(
     user_prompt = "\n\n".join(user_parts)
 
     if _gemini_client:
+        gemini_contents = []
+        for msg in conversation_history:
+            role = "user" if msg["role"] == "user" else "model"
+            gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+        
+        gemini_contents.append({"role": "user", "parts": [{"text": user_prompt}]})
+        
         try:
             logger.info(f"[llm] Calling Gemini streaming: model={settings.GEMINI_DEFAULT_MODEL}...")
-            gemini_contents = []
-            for msg in conversation_history:
-                role = "user" if msg["role"] == "user" else "model"
-                gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
-            
-            gemini_contents.append({"role": "user", "parts": [{"text": user_prompt}]})
-            
+            config_args = {
+                "system_instruction": SYSTEM_PROMPT,
+                "temperature": 0.5,
+                "max_output_tokens": settings.LLM_MAX_TOKENS,
+            }
+            if is_general:
+                logger.info("[llm-gemini] Attempting Google Search grounding for general query...")
+                config_args["tools"] = [{"google_search": {}}]
+                
             response_stream = _gemini_client.models.generate_content_stream(
                 model=settings.GEMINI_DEFAULT_MODEL,
                 contents=gemini_contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=0.5,
-                    max_output_tokens=settings.LLM_MAX_TOKENS,
-                )
+                config=types.GenerateContentConfig(**config_args)
             )
             
             full_response = ""
@@ -214,11 +219,37 @@ def get_response_stream(
                     full_response += chunk.text
                     yield json.dumps({"content": chunk.text, "session_id": session_id})
                     
-            logger.info(f"[llm-gemini] response success chars={len(full_response)}")
+            logger.info(f"[llm-gemini] response success chars={len(full_response)} (grounded={is_general})")
             yield "__FULL__" + full_response
             return
         except Exception as e:
-            logger.error(f"[llm-gemini] ERROR: {e}, falling back to FPT Cloud...")
+            err_str = str(e).lower()
+            if is_general and ("quota" in err_str or "limit" in err_str or "429" in err_str or "exhausted" in err_str):
+                logger.warning(f"[llm-gemini] Search grounding failed (likely free tier quota limit): {e}. Retrying without grounding...")
+                try:
+                    config_args = {
+                        "system_instruction": SYSTEM_PROMPT,
+                        "temperature": 0.5,
+                        "max_output_tokens": settings.LLM_MAX_TOKENS,
+                    }
+                    response_stream = _gemini_client.models.generate_content_stream(
+                        model=settings.GEMINI_DEFAULT_MODEL,
+                        contents=gemini_contents,
+                        config=types.GenerateContentConfig(**config_args)
+                    )
+                    full_response = ""
+                    for chunk in response_stream:
+                        if chunk.text:
+                            full_response += chunk.text
+                            yield json.dumps({"content": chunk.text, "session_id": session_id})
+                            
+                    logger.info(f"[llm-gemini] response success via non-grounded fallback chars={len(full_response)}")
+                    yield "__FULL__" + full_response
+                    return
+                except Exception as ex:
+                    logger.error(f"[llm-gemini] Fallback retry failed: {ex}, falling back to FPT Cloud...")
+            else:
+                logger.error(f"[llm-gemini] ERROR: {e}, falling back to FPT Cloud...")
 
     # Fallback to FPT Cloud
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]

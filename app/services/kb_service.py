@@ -60,6 +60,106 @@ def _tokenize(text: str) -> list[str]:
     tokens = word_tokenize(text, format="text").split()
     return [t for t in tokens if len(t) > 1]
 
+def _smart_chunk_file(file_path: Path) -> list[str]:
+    """Chia nhỏ file Markdown một cách thông minh, gộp các dòng ngắn và giữ ngữ cảnh tiêu đề."""
+    content = file_path.read_text(encoding="utf-8")
+    
+    # Dọn dẹp tên file để làm chủ đề mặc định nếu không có tiêu đề
+    file_title = file_path.stem
+    if file_title.startswith("web_main_"):
+        file_title = file_title.replace("web_main_", "Cổng thông tin UFM - ")
+    elif file_title.startswith("web_"):
+        file_title = file_title.replace("web_", "Tuyển sinh Sau đại học UFM - ")
+    file_title = file_title.replace("-", " ").replace("_", " ").strip().title()
+    
+    current_h1 = ""
+    current_h2 = ""
+    current_h3 = ""
+    
+    chunks = []
+    current_lines = []
+    current_len = 0
+    
+    # Đọc từng dòng
+    lines = content.splitlines()
+    for line in lines:
+        line_strip = line.strip()
+        if not line_strip:
+            continue
+            
+        # Nhận diện tiêu đề Markdown
+        h1_match = re.match(r'^#\s+(.+)$', line_strip)
+        h2_match = re.match(r'^##\s+(.+)$', line_strip)
+        h3_match = re.match(r'^###\s+(.+)$', line_strip)
+        
+        is_header = False
+        if h1_match:
+            if current_lines:
+                chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
+                current_lines = []
+                current_len = 0
+            current_h1 = h1_match.group(1).strip()
+            current_h2 = ""
+            current_h3 = ""
+            is_header = True
+        elif h2_match:
+            if current_lines:
+                chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
+                current_lines = []
+                current_len = 0
+            current_h2 = h2_match.group(1).strip()
+            current_h3 = ""
+            is_header = True
+        elif h3_match:
+            if current_lines:
+                chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
+                current_lines = []
+                current_len = 0
+            current_h3 = h3_match.group(1).strip()
+            is_header = True
+            
+        if is_header:
+            continue
+            
+        # Nhận diện ngắt trang hoặc phân tách ngang
+        if line_strip == "---" or line_strip.startswith("<!-- Trang"):
+            if current_lines:
+                chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
+                current_lines = []
+                current_len = 0
+            continue
+            
+        # Thêm dòng vào chunk hiện tại
+        current_lines.append(line_strip)
+        current_len += len(line_strip)
+        
+        # Flush nếu chunk đạt quá 800 ký tự
+        if current_len > 800:
+            chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
+            current_lines = []
+            current_len = 0
+            
+    # Flush phần còn lại
+    if current_lines:
+        chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
+        
+    # Định dạng các chunk với đầy đủ ngữ cảnh
+    formatted_chunks = []
+    for h1, h2, h3, text in chunks:
+        hierarchy = []
+        if h1: hierarchy.append(h1)
+        if h2: hierarchy.append(h2)
+        if h3: hierarchy.append(h3)
+        
+        topic = " > ".join(hierarchy) if hierarchy else file_title
+        
+        # Lọc bỏ các chunk quá rác (dưới 20 ký tự thực tế)
+        if len(text.strip()) > 20:
+            formatted = f"Nguồn: {file_path.name}\nChủ đề: {topic}\nNội dung:\n{text}"
+            formatted_chunks.append(formatted)
+        
+    return formatted_chunks
+
 def _load_kb():
     global _chunks, _bm25
     if not KB_DIR.exists():
@@ -70,23 +170,22 @@ def _load_kb():
     total_files = 0
     for file_path in KB_DIR.glob("*.md"):
         try:
-            content = file_path.read_text(encoding="utf-8")
-            # Chia nhỏ file theo tiêu đề hoặc đoạn văn lớn
-            paragraphs = re.split(r'\n#{1,3} |\n\n+', content)
-            for p in paragraphs:
-                p = p.strip()
-                if len(p) > 100:  # Bỏ qua đoạn quá ngắn
-                    chunk = f"Nguồn: {file_path.name}\nNội dung: {p}"
-                    _chunks.append(chunk)
-                    _chunk_ids.append(f"{file_path.name}_{len(_chunks)}")
-                    docs.append(_tokenize(p))
+            # Sử dụng bộ chunker thông minh thay vì split thô
+            file_chunks = _smart_chunk_file(file_path)
+            for chunk in file_chunks:
+                _chunks.append(chunk)
+                _chunk_ids.append(f"{file_path.name}_{len(_chunks)}")
+                
+                # Trích xuất phần nội dung thực tế để token hóa cho BM25
+                content_part = chunk.split("Nội dung:\n", 1)[-1]
+                docs.append(_tokenize(content_part))
             total_files += 1
         except Exception as e:
             logger.error(f"[kb] Failed to read {file_path.name}: {e}")
             
     if docs:
         _bm25 = SimpleBM25(docs)
-        logger.info(f"[kb] Loaded {total_files} offline PDFs ({len(_chunks)} chunks)")
+        logger.info(f"[kb] Loaded {total_files} offline files ({len(_chunks)} chunks)")
         vector_service.index_chunks(_chunks, _chunk_ids)
 
 # Khởi tạo lúc start
