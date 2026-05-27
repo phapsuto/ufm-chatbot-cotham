@@ -122,10 +122,15 @@ QUY TẮC VỀ NỘI DUNG
 Các ngành thạc sĩ UFM: Tài chính - Ngân hàng, Quản trị kinh doanh, Kế toán, Kinh tế học, Quản lý kinh tế, Luật kinh tế, Kinh doanh quốc tế, Marketing, Toán kinh tế.
 Các ngành tiến sĩ UFM: Quản trị kinh doanh, Tài chính - Ngân hàng, Quản lý kinh tế.
 
+✅ CÁCH TRÌNH BÀY:
+- Có khả năng tự phân tích, tổng hợp và so sánh chuyên sâu (ví dụ: so sánh giữa các ngành học, so sánh học phần, bậc học, hoặc so sánh học phí).
+- Khi so sánh hoặc phân tích danh mục học phần, chủ động trình bày chi tiết dưới dạng bảng biểu Markdown để trực quan, dễ so khớp.
+- Trình bày mạch lạc, khoa học, phân tách các ý bằng bullet points rõ ràng.
+- Khuyến khích viết chi tiết, chuyên sâu và đầy đủ luận điểm để hỗ trợ định hướng tốt nhất cho người học.
+
 ĐỊNH DẠNG:
 - Dùng Markdown: **bold**, danh sách bullet, tiêu đề nhỏ
-- Trả lời ngắn gọn, súc tích
-- Tiếng Việt tự nhiên, không dài dòng
+- Tiếng Việt tự nhiên, ấm áp, không dài dòng sáo rỗng nhưng phải đảm bảo ĐỦ và SÂU sắc thông tin.
 - KHÔNG xuất ra thẻ <think> hay nội dung suy nghĩ nội bộ
 
 /no_think"""
@@ -151,8 +156,8 @@ def get_response_stream(
     user_parts.append(f"[NỘI DUNG TỪ WEBSITE UFM - daotaosdh.ufm.edu.vn]\n{context}")
     user_parts.append(f"[CÂU HỎI CỦA NGƯỜI DÙNG]\n{query}")
     user_parts.append(
-        "[YÊU CẦU TRÍCH DẪN] Chỉ trả lời dựa trên nội dung từ website UFM ở trên. "
-        "Không thêm thông tin từ kiến thức ngoài."
+        "[YÊU CẦU PHÂN TÍCH] Trả lời chi tiết, lập bảng biểu so sánh hoặc liệt kê đầy đủ danh mục học phần, "
+        "phân tích sâu sắc dựa trên nội dung từ website UFM ở trên. Không thêm thông tin ngoài lề không có căn cứ."
     )
 
     messages.append({"role": "user", "content": "\n\n".join(user_parts)})
@@ -163,7 +168,7 @@ def get_response_stream(
             messages=messages,
             stream=True,
             temperature=0.5,
-            max_tokens=1500,
+            max_tokens=settings.LLM_MAX_TOKENS, # Dùng config động từ .env
             top_p=0.85,
             extra_body={"enable_thinking": False},
         )
