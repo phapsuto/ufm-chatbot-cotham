@@ -41,7 +41,8 @@ async def chat(req: ChatRequest):
             # Giả lập stream cực nhanh
             chunk_size = max(5, len(cached_answer) // 20)
             for i in range(0, len(cached_answer), chunk_size):
-                yield f"data: {cached_answer[i:i+chunk_size]}\n\n"
+                chunk_data = json.dumps({"content": cached_answer[i:i+chunk_size], "session_id": session_id})
+                yield f"data: {chunk_data}\n\n"
                 
             ctx = memory_service.get_or_create_session(session_id)["context"]
             suggestions = suggestion_service.get_suggestions("general", ctx.get("asked_about", []))
