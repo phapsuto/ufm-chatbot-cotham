@@ -1,7 +1,6 @@
-"""app/services/context_service.py — Gom context + smart source tracking (v3 enhanced)"""
+"""app/services/context_service.py — Gom context + smart source tracking (v4 — no double search)"""
 import logging
 from urllib.parse import urlparse, parse_qs
-from app.services import kb_service
 
 logger = logging.getLogger("ufm-chatbot")
 
@@ -138,9 +137,7 @@ def build_context(
     pdf_contents: dict[str, str],
     memory_summary: str,
     query: str,
-    search_query: str = None,
-    level: str = None,
-    major: str = None,
+    kb_chunks: list[dict] = None,
 ) -> tuple[str, list[dict]]:
     """Gom context với relevance scoring, trả về (context_string, sources_list)."""
     sources_with_score = []
@@ -180,8 +177,7 @@ def build_context(
                 "relevance": score,
             })
 
-    # Tra cứu Offline Knowledge Base (ưu tiên cao nhất, luôn lục trong này trước)
-    kb_chunks = kb_service.search_kb(search_query or query, top_k=5, level=level, major=major)
+    # Dùng kb_chunks đã được search_kb() từ chat.py truyền vào (tránh gọi lần 2)
     kb_content_parts = []
     kb_highest_score = 0.0
     if kb_chunks:

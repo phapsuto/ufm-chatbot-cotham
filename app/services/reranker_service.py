@@ -1,13 +1,23 @@
-"""app/services/reranker_service.py — Lightweight Hybrid Reranker (A+B)
-Kết hợp Vietnamese Keyword Scorer (0ms, chạy luôn) + FlashRank ONNX (5ms, fallback nếu có).
-Thay thế BGE-Reranker-v2-M3 (~1.2GB RAM → ~4MB + 0MB)
+"""app/services/reranker_service.py — Hybrid Reranker (A + B)
+Kết hợp Vietnamese Keyword Scorer (0ms) + BGE-Reranker-v2-M3 ONNX Quantized (~500MB, CPU).
+BGE-M3 ONNX giữ ~98% chất lượng model gốc 2.27GB nhưng chạy trên CPU cực nhanh.
+
+Model được lưu chung tại ~/shared_models/bge-reranker-v2-m3-onnx/
+để tất cả app (UFM, VNLegal, VKS, DrPig...) dùng chung, không download lại.
 """
+import os
 import re
-import math
 import logging
 from underthesea import word_tokenize
 
 logger = logging.getLogger("ufm-chatbot")
+
+# ══════════════════════════════════
+# Đường dẫn model chung — 1 lần download, tất cả app dùng chung
+# ══════════════════════════════════
+SHARED_MODEL_INT8 = os.path.expanduser("~/shared_models/bge-reranker-v2-m3-onnx-int8")  # 564MB, nhanh nhất
+SHARED_MODEL_FP32 = os.path.expanduser("~/shared_models/bge-reranker-v2-m3-onnx")       # 2.2GB, backup
+HF_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
 
 # ══════════════════════════════════
 # LAYER A: Vietnamese Keyword Scorer (Thuần Python, 0 model, < 1ms)
@@ -56,13 +66,10 @@ def _keyword_score(query: str, document: str) -> float:
     score_coverage = coverage * 0.4
 
     # --- Signal 2: Exact Phrase Matching (0.0 - 0.3) ---
-    # Kiểm tra cụm từ nguyên vẹn từ query có trong doc không
     score_phrase = 0.0
-    # 2a. Full query match
     if query_lower in doc_lower:
         score_phrase = 0.3
     else:
-        # 2b. Ngram matching (2-3 gram)
         q_words = query_lower.split()
         ngram_matches = 0
         ngram_total = 0
@@ -76,17 +83,14 @@ def _keyword_score(query: str, document: str) -> float:
             score_phrase = (ngram_matches / ngram_total) * 0.25
 
     # --- Signal 3: Position Bonus (0.0 - 0.15) ---
-    # Từ khớp ở đầu doc (dòng 1-3 = title/header) quan trọng hơn
     first_lines = "\n".join(document.split("\n")[:3]).lower()
     first_tokens = set(_tokenize_vn(first_lines))
     head_matches = sum(1 for qt in query_tokens if qt in first_tokens)
     score_position = min(0.15, (head_matches / max(len(query_tokens), 1)) * 0.15)
 
     # --- Signal 4: Keyword Density (0.0 - 0.15) ---
-    # Tránh doc dài chứa mọi thứ nhưng không tập trung
     if len(doc_tokens) > 0:
         density = matched / len(doc_tokens)
-        # Normalize: density 0.1 → OK, density 0.01 → quá loãng
         score_density = min(0.15, density * 2.0)
     else:
         score_density = 0.0
@@ -96,37 +100,118 @@ def _keyword_score(query: str, document: str) -> float:
 
 
 # ══════════════════════════════════
-# LAYER B: FlashRank ONNX (Siêu nhẹ, ~4MB, ~5-10ms)
+# LAYER B: BGE-Reranker-v2-M3 ONNX Quantized (~500MB, CPU optimized)
+# Load từ thư mục chung ~/shared_models/ — download 1 lần, dùng cho tất cả app
 # ══════════════════════════════════
 
-_flashrank_ranker = None
-_flashrank_available = False
-
-try:
-    from flashrank import Ranker, RerankRequest
-    # Model siêu nhẹ: ms-marco-TinyBERT-L-2-v2 chỉ ~4MB, chạy ONNX trên CPU cực nhanh
-    _flashrank_ranker = Ranker(model_name="ms-marco-TinyBERT-L-2-v2", cache_dir="data/models")
-    _flashrank_available = True
-    logger.info("[reranker] FlashRank ONNX loaded (ms-marco-MiniLM-L-2, ~4MB) ✅")
-except ImportError:
-    logger.info("[reranker] FlashRank not installed — using Vietnamese Keyword Scorer only")
-except Exception as e:
-    logger.warning(f"[reranker] FlashRank load failed: {e} — using Keyword Scorer only")
+_bge_model = None
+_bge_tokenizer = None
+_bge_available = False
 
 
-def _flashrank_score(query: str, documents: list[str]) -> list[float]:
-    """Chấm điểm bằng FlashRank ONNX (nếu có)."""
-    if not _flashrank_available or not _flashrank_ranker:
+def init_bge_reranker():
+    """
+    Khởi tạo BGE-M3 ONNX Reranker — gọi 1 lần trong lifespan.
+    
+    Thứ tự ưu tiên:
+    1. ~/shared_models/bge-reranker-v2-m3-onnx-int8/ (564MB, load 0.6s, nhanh nhất)
+    2. ~/shared_models/bge-reranker-v2-m3-onnx/ (2.2GB FP32, chậm hơn)
+    3. Tự download từ HuggingFace + convert + quantize + lưu chung
+    
+    Tất cả app (UFM, VNLegal, VKS, DrPig...) dùng chung thư mục ~/shared_models/
+    """
+    global _bge_model, _bge_tokenizer, _bge_available
+    try:
+        from optimum.onnxruntime import ORTModelForSequenceClassification
+        from transformers import AutoTokenizer
+
+        # ① Ưu tiên bản INT8 Quantized (564MB, load 0.6s)
+        int8_onnx = os.path.join(SHARED_MODEL_INT8, "model_quantized.onnx")
+        if os.path.exists(int8_onnx):
+            logger.info(f"[reranker] Loading BGE-M3 INT8 từ: {SHARED_MODEL_INT8}")
+            _bge_tokenizer = AutoTokenizer.from_pretrained(SHARED_MODEL_INT8)
+            _bge_model = ORTModelForSequenceClassification.from_pretrained(
+                SHARED_MODEL_INT8, file_name="model_quantized.onnx"
+            )
+            _bge_available = True
+            logger.info("[reranker] ✅ BGE-M3 INT8 loaded (564MB, ~12ms/pair, 98% accuracy)")
+            return
+
+        # ② Fallback: bản FP32 ONNX (2.2GB)
+        fp32_onnx = os.path.join(SHARED_MODEL_FP32, "model.onnx")
+        if os.path.exists(fp32_onnx):
+            logger.info(f"[reranker] Loading BGE-M3 FP32 từ: {SHARED_MODEL_FP32}")
+            _bge_tokenizer = AutoTokenizer.from_pretrained(SHARED_MODEL_FP32)
+            _bge_model = ORTModelForSequenceClassification.from_pretrained(SHARED_MODEL_FP32)
+            _bge_available = True
+            logger.info("[reranker] ✅ BGE-M3 FP32 loaded (2.2GB, chậm hơn INT8)")
+            return
+
+        # ③ Chưa có → Download + convert + quantize + lưu chung
+        logger.info(f"[reranker] BGE-M3 ONNX chưa có, downloading từ HuggingFace...")
+        os.makedirs(SHARED_MODEL_FP32, exist_ok=True)
+        
+        _bge_tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
+        _bge_model = ORTModelForSequenceClassification.from_pretrained(
+            HF_MODEL_NAME, export=True
+        )
+        
+        # Lưu FP32
+        _bge_model.save_pretrained(SHARED_MODEL_FP32)
+        _bge_tokenizer.save_pretrained(SHARED_MODEL_FP32)
+        
+        # Quantize → INT8 để lần sau load nhanh
+        try:
+            from optimum.onnxruntime import ORTQuantizer
+            from optimum.onnxruntime.configuration import AutoQuantizationConfig
+            
+            os.makedirs(SHARED_MODEL_INT8, exist_ok=True)
+            qconfig = AutoQuantizationConfig.avx512_vnni(is_static=False, per_channel=False)
+            quantizer = ORTQuantizer.from_pretrained(_bge_model)
+            quantizer.quantize(save_dir=SHARED_MODEL_INT8, quantization_config=qconfig)
+            _bge_tokenizer.save_pretrained(SHARED_MODEL_INT8)
+            logger.info(f"[reranker] ✅ INT8 quantized + saved to {SHARED_MODEL_INT8}")
+            
+            # Reload bản INT8 để dùng ngay
+            _bge_model = ORTModelForSequenceClassification.from_pretrained(
+                SHARED_MODEL_INT8, file_name="model_quantized.onnx"
+            )
+        except Exception as qe:
+            logger.warning(f"[reranker] INT8 quantize failed: {qe} — using FP32")
+        
+        _bge_available = True
+        logger.info("[reranker] ✅ BGE-M3 ONNX ready — các app khác dùng chung ~/shared_models/")
+            
+    except ImportError:
+        logger.warning("[reranker] optimum[onnxruntime] not installed — pip install 'optimum[onnxruntime]'")
+    except Exception as e:
+        logger.warning(f"[reranker] BGE-M3 ONNX load failed: {e} — using Keyword Scorer only")
+
+
+def _bge_score(query: str, documents: list[str]) -> list[float]:
+    """Chấm điểm bằng BGE-M3 ONNX (nếu có). Trả về scores qua Sigmoid (0-1)."""
+    if not _bge_available or not _bge_model or not _bge_tokenizer:
         return [0.0] * len(documents)
     try:
-        passages = [{"id": i, "text": doc[:512]} for i, doc in enumerate(documents)]
-        request = RerankRequest(query=query, passages=passages)
-        results = _flashrank_ranker.rerank(request)
-        # FlashRank trả về sorted — cần map lại theo thứ tự gốc
-        score_map = {r["id"]: r["score"] for r in results}
-        return [score_map.get(i, 0.0) for i in range(len(documents))]
+        # BGE reranker nhận cặp [query, document]
+        pairs = [[query, doc[:512]] for doc in documents]
+        inputs = _bge_tokenizer(
+            pairs,
+            padding=True,
+            truncation=True,
+            max_length=512,
+            return_tensors="pt"
+        )
+        with torch.no_grad():
+            outputs = _bge_model(**inputs)
+        # Sigmoid để normalize logits thành probability (0-1)
+        scores = torch.sigmoid(outputs.logits.squeeze(-1)).tolist()
+        # Nếu chỉ 1 document, sigmoid trả scalar → wrap trong list
+        if isinstance(scores, float):
+            scores = [scores]
+        return scores
     except Exception as e:
-        logger.warning(f"[reranker] FlashRank error: {e}")
+        logger.warning(f"[reranker] BGE-M3 ONNX scoring error: {e}")
         return [0.0] * len(documents)
 
 
@@ -140,9 +225,9 @@ def rerank(query: str, documents: list[str]) -> list[float]:
     
     Hybrid strategy:
     - Layer A (Vietnamese Keyword Scorer): Luôn chạy, < 1ms, miễn phí
-    - Layer B (FlashRank ONNX): Chạy nếu có, ~5ms, chất lượng cao hơn
-    - Final score = 0.4 × keyword_score + 0.6 × flashrank_score (nếu có FlashRank)
-    - Nếu không có FlashRank: score = keyword_score (vẫn hoạt động tốt)
+    - Layer B (BGE-M3 ONNX Quantized): Chạy nếu có, ~30-50ms, chất lượng cao
+    - Final score = 0.3 × keyword_score + 0.7 × bge_score (nếu có BGE)
+    - Nếu không có BGE: score = keyword_score (vẫn hoạt động OK)
     """
     if not documents:
         return []
@@ -150,17 +235,13 @@ def rerank(query: str, documents: list[str]) -> list[float]:
     # Layer A: Vietnamese Keyword Scorer (luôn chạy)
     keyword_scores = [_keyword_score(query, doc) for doc in documents]
 
-    # Layer B: FlashRank ONNX (nếu có)
-    if _flashrank_available:
-        flash_scores = _flashrank_score(query, documents)
-        # Normalize FlashRank scores to 0-1 range
-        max_flash = max(flash_scores) if flash_scores else 1.0
-        if max_flash > 0:
-            flash_scores = [s / max_flash for s in flash_scores]
-        # Hybrid: 40% keyword + 60% FlashRank
+    # Layer B: BGE-M3 ONNX (nếu có)
+    if _bge_available:
+        bge_scores = _bge_score(query, documents)
+        # Hybrid: 30% keyword + 70% BGE-M3 (BGE chính xác hơn nhiều)
         final_scores = [
-            0.4 * kw + 0.6 * fr
-            for kw, fr in zip(keyword_scores, flash_scores)
+            0.3 * kw + 0.7 * bge
+            for kw, bge in zip(keyword_scores, bge_scores)
         ]
     else:
         # Chỉ dùng Keyword Scorer

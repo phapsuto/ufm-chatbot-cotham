@@ -1,5 +1,4 @@
 """app/services/cache_service.py — Persistent Cache cho PDF & Memory Cache cho HTML + QA Cache"""
-import os
 import re
 import json
 import logging

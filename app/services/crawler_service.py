@@ -144,25 +144,70 @@ async def crawl_multiple(urls: list[str], max_urls: int = 4) -> dict[str, str]:
     return results
 
 
-async def web_search_ddg(query: str) -> str:
-    """Tra cứu thông tin tự do trên Internet qua DuckDuckGo HTML API (Miễn phí 100% & Không cần API Key)"""
+async def web_search_gemini(query: str) -> str:
+    """Tìm kiếm Internet qua Gemini API + Google Search grounding (chất lượng cao hơn DuckDuckGo)."""
+    try:
+        from google import genai
+        from google.genai import types
+        from app.config import settings
+
+        if not settings.GEMINI_API_KEY:
+            logger.warning("[web-search] No GEMINI_API_KEY, falling back to DuckDuckGo")
+            return await _web_search_ddg_fallback(query)
+
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+        # Dùng Gemini + Google Search grounding để lấy kết quả chất lượng cao
+        search_prompt = (
+            f"Hãy tìm kiếm và tổng hợp thông tin chi tiết, chính xác nhất về: {query}\n"
+            f"Trả lời bằng tiếng Việt, trích dẫn nguồn rõ ràng."
+        )
+
+        response = client.models.generate_content(
+            model=settings.GEMINI_DEFAULT_MODEL,
+            contents=search_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                max_output_tokens=1500,
+                tools=[{"google_search": {}}],  # Google Search grounding
+            )
+        )
+
+        result_text = response.text.strip() if response.text else ""
+
+        if result_text and len(result_text) > 50:
+            logger.info(f"[web-search] Gemini Google Search grounding OK for '{query[:30]}' chars={len(result_text)}")
+            return result_text
+
+        # Gemini không trả kết quả → fallback DDG
+        logger.warning("[web-search] Gemini search returned empty, falling back to DuckDuckGo")
+        return await _web_search_ddg_fallback(query)
+
+    except Exception as e:
+        err_str = str(e).lower()
+        if "quota" in err_str or "429" in err_str or "exhausted" in err_str:
+            logger.warning(f"[web-search] Gemini quota exceeded, falling back to DuckDuckGo")
+        else:
+            logger.error(f"[web-search] Gemini search error: {e}, falling back to DuckDuckGo")
+        return await _web_search_ddg_fallback(query)
+
+
+async def _web_search_ddg_fallback(query: str) -> str:
+    """Fallback: DuckDuckGo HTML API khi Gemini hết quota."""
     try:
         url = "https://html.duckduckgo.com/html/"
         ddg_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         }
-        # Gửi yêu cầu tìm kiếm dạng POST lên DuckDuckGo — async để không block event loop
         async with httpx.AsyncClient(timeout=8.0, verify=False) as ddg_client:
             resp = await ddg_client.post(url, data={"q": query}, headers=ddg_headers)
         if resp.status_code != 200:
-            logger.warning(f"[web-search] DuckDuckGo search returned status {resp.status_code}")
             return ""
-            
+
         soup = BeautifulSoup(resp.text, "html.parser")
         results = []
-        
-        # Duyệt qua tối đa 4 kết quả tìm kiếm đầu tiên
+
         snippets = soup.find_all("a", class_="result__snippet")[:4]
         for a in snippets:
             text = a.get_text(strip=True)
@@ -170,20 +215,20 @@ async def web_search_ddg(query: str) -> str:
             title_tag = parent.find("a", class_="result__url") if parent else None
             title = title_tag.get_text(strip=True) if title_tag else "Kết quả tìm kiếm Internet"
             href = title_tag["href"] if title_tag and "href" in title_tag.attrs else "#"
-            
-            # Giải mã link chuyển hướng của DuckDuckGo nếu có
+
             if href.startswith("//duckduckgo.com/l/?uddg="):
                 from urllib.parse import unquote
                 href = unquote(href.split("uddg=")[1].split("&")[0])
-                
+
             results.append(f"📖 TIÊU ĐỀ: {title}\n🔗 NGUỒN: {href}\n📝 NỘI DUNG TÓM TẮT: {text}")
-            
+
         if results:
             clean_search = "\n\n---\n\n".join(results)
-            logger.info(f"[web-search] DuckDuckGo search successful for '{query[:30]}' results={len(results)}")
+            logger.info(f"[web-search] DuckDuckGo fallback OK for '{query[:30]}' results={len(results)}")
             return clean_search
         return ""
     except Exception as e:
-        logger.error(f"[web-search] DuckDuckGo search error: {e}")
+        logger.error(f"[web-search] DuckDuckGo fallback error: {e}")
         return ""
+
 

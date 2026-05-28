@@ -1,11 +1,9 @@
-"""app/services/llm_service.py — Gọi Gemini / FPT Cloud (v4 — RAG + Gemini)"""
+"""app/services/llm_service.py — FPT Cloud Gemma-4 (v5 — phân vai: search=Gemini, chat=Gemma-4)"""
 import json
 import logging
 from typing import Generator
 
 from openai import OpenAI
-from google import genai
-from google.genai import types
 from app.config import settings
 
 logger = logging.getLogger("ufm-chatbot")
@@ -113,18 +111,33 @@ Bước 2 — Thông tin học vấn
 Bước 3 — Giấy tờ (giải thích rõ từng loại cần upload)
 
 ════════════════════════════════
-QUY TẮC VỀ NỘI DUNG
+QUY TẮC VỀ NỘI DUNG — CỰC KỲ QUAN TRỌNG
 ════════════════════════════════
 
-QUY TẮC PHẠM VI DỮ LIỆU & KIẾN THỨC TỔNG HỢP:
+🔴 NGUYÊN TẮC VÀNG — TUÂN THỦ TUYỆT ĐỐI:
+1. Nếu phần [NỘI DUNG TỪ WEBSITE UFM] hoặc "Kho dữ liệu Đào tạo UFM (Offline)" CÓ chứa thông tin liên quan → BẮT BUỘC trả lời DỰA TRÊN DỮ LIỆU ĐÓ. Trích dẫn số liệu, ngày tháng, điều kiện CHÍNH XÁC từ dữ liệu.
+2. TUYỆT ĐỐI KHÔNG tự bịa đặt, suy đoán hoặc "làm tròn" bất kỳ:
+   - Số tiền học phí
+   - Ngày thi, deadline nộp hồ sơ
+   - Điều kiện xét tuyển (điểm, chứng chỉ, kinh nghiệm)
+   - Số tín chỉ, thời gian đào tạo
+   - Tên giảng viên, tên ngành
+3. Nếu dữ liệu KHÔNG đủ để trả lời: nói thẳng "Dạ phần này cô chưa tìm thấy trên hệ thống, [tên] liên hệ phòng Sau đại học (028.xxx) để có thông tin chính xác nhất nha!"
+4. KHÔNG BAO GIỜ trả lời "theo cô biết thì...", "thường thì...", "có lẽ..." cho câu hỏi về số liệu/quy chế UFM.
+
+THỨ TỰ ƯU TIÊN NGUỒN DỮ LIỆU:
+1. "Kho dữ liệu Đào tạo UFM (Offline)" — ĐỘ TIN CẬY CAO NHẤT (dữ liệu đã được xác minh)
+2. Nội dung crawl từ website UFM — Tin cậy cao
+3. Kết quả tìm kiếm Internet — Chỉ dùng cho câu hỏi KHÔNG liên quan UFM
+4. Kiến thức tổng hợp của mô hình — Chỉ dùng cho xã giao, chào hỏi, kiến thức chung
+
 - ĐỐI VỚI CÂU HỎI VỀ UFM:
-  * Bạn bắt buộc phải TUÂN THỦ NGHIÊM NGẶT việc trả lời dựa trên dữ liệu trong [NỘI DUNG TỪ WEBSITE UFM] hoặc "Kho dữ liệu Đào tạo UFM (Offline)".
-  * KHÔNG tự bịa đặt học phí, số liệu tuyển sinh, ngày tháng hay điều kiện xét tuyển.
+  * TUÂN THỦ NGHIÊM NGẶT dữ liệu trong [NỘI DUNG TỪ WEBSITE UFM] và "Kho dữ liệu Đào tạo UFM (Offline)".
   * Nếu thiếu thông tin UFM: "Dạ phần này cô chưa tìm thấy rõ trên website, liên hệ phòng Sau đại học UFM để xác nhận chính xác nha!"
 
-- ĐỐI VỚI CÂU HỎI XÃ GIAO, TRÒ CHUYỆN TÀO LAO, HOẶC KIẾN THỨC TỔNG HỢP NGOÀI LỀ (Không liên quan UFM):
-  * Bạn được phép TỰ DO sử dụng kho tri thức tổng hợp khổng lồ của mình (mô hình Gemma-4) kết hợp với "Kết quả Tìm kiếm Internet" (nếu có trong phần NỘI DUNG WEBSITE UFM) để trả lời người học một cách thông thái, dí dỏm, thân thiện và chính xác nhất.
-  * Trả lời tự nhiên dưới nhân cách "Cô giáo Thắm" miền Nam, sau đó khéo léo dẫn dắt học viên: "À mà hôm nay bạn/em đang muốn tìm hiểu chương trình Thạc sĩ hay Tiến sĩ nào của UFM để cô hỗ trợ nha?" để đưa họ về lại đúng mục tiêu tuyển sinh của trường.
+- ĐỐI VỚI CÂU HỎI XÃ GIAO, TRÒ CHUYỆN TÀO LAO, HOẶC KIẾN THỨC TỔNG HỢP NGOÀI LỀ:
+  * Được phép dùng kiến thức tổng hợp + Kết quả Tìm kiếm Internet (nếu có) để trả lời tự nhiên.
+  * Sau đó khéo léo dẫn dắt: "À mà hôm nay bạn/em đang muốn tìm hiểu chương trình nào của UFM để cô hỗ trợ nha?"
 
 Các ngành thạc sĩ UFM: Tài chính - Ngân hàng, Quản trị kinh doanh, Kế toán, Kinh tế học, Quản lý kinh tế, Luật kinh tế, Kinh doanh quốc tế, Marketing, Toán kinh tế.
 Các ngành tiến sĩ UFM: Quản trị kinh doanh, Tài chính - Ngân hàng, Quản lý kinh tế.
@@ -142,15 +155,8 @@ Các ngành tiến sĩ UFM: Quản trị kinh doanh, Tài chính - Ngân hàng, 
 
 /no_think"""
 
-_gemini_client = None
-if settings.GEMINI_API_KEY:
-    try:
-        _gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        logger.info(f"[llm] Google GenAI SDK initialized with model {settings.GEMINI_DEFAULT_MODEL}")
-    except Exception as e:
-        logger.error(f"[llm] Failed to initialize Google GenAI SDK: {e}")
-
 _client = OpenAI(api_key=settings.FPT_CLOUD_API_KEY, base_url=settings.FPT_CLOUD_BASE_URL)
+logger.info(f"[llm] FPT Cloud Gemma-4 initialized: model={settings.FPT_CLOUD_DEFAULT_MODEL}")
 
 
 def get_response_stream(
@@ -161,7 +167,12 @@ def get_response_stream(
     context_summary: str = "",
     is_general: bool = False,
 ) -> Generator:
-    """Stream response từ Gemini (ưu tiên) hoặc Qwen3/Gemma-4 fallback."""
+    """Stream response từ FPT Cloud Gemma-4 (PRIMARY).
+    
+    Kiến trúc phân vai:
+    - Gemini API → chỉ dùng cho Google Search grounding (crawler_service)
+    - FPT Cloud Gemma-4 → trả lời chat (ổn định, không rate limit)
+    """
     user_parts = []
     if context_summary:
         user_parts.append(f"[THÔNG TIN NGỮ CẢNH - ĐỌC TRƯỚC KHI TRẢ LỜI]\n{context_summary}")
@@ -188,70 +199,7 @@ def get_response_stream(
 
     user_prompt = "\n\n".join(user_parts)
 
-    if _gemini_client:
-        gemini_contents = []
-        for msg in conversation_history:
-            role = "user" if msg["role"] == "user" else "model"
-            gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
-        
-        gemini_contents.append({"role": "user", "parts": [{"text": user_prompt}]})
-        
-        try:
-            logger.info(f"[llm] Calling Gemini streaming: model={settings.GEMINI_DEFAULT_MODEL}...")
-            config_args = {
-                "system_instruction": SYSTEM_PROMPT,
-                "temperature": 0.5,
-                "max_output_tokens": settings.LLM_MAX_TOKENS,
-            }
-            if is_general:
-                logger.info("[llm-gemini] Attempting Google Search grounding for general query...")
-                config_args["tools"] = [{"google_search": {}}]
-                
-            response_stream = _gemini_client.models.generate_content_stream(
-                model=settings.GEMINI_DEFAULT_MODEL,
-                contents=gemini_contents,
-                config=types.GenerateContentConfig(**config_args)
-            )
-            
-            full_response = ""
-            for chunk in response_stream:
-                if chunk.text:
-                    full_response += chunk.text
-                    yield json.dumps({"content": chunk.text, "session_id": session_id})
-                    
-            logger.info(f"[llm-gemini] response success chars={len(full_response)} (grounded={is_general})")
-            yield "__FULL__" + full_response
-            return
-        except Exception as e:
-            err_str = str(e).lower()
-            if is_general and ("quota" in err_str or "limit" in err_str or "429" in err_str or "exhausted" in err_str):
-                logger.warning(f"[llm-gemini] Search grounding failed (likely free tier quota limit): {e}. Retrying without grounding...")
-                try:
-                    config_args = {
-                        "system_instruction": SYSTEM_PROMPT,
-                        "temperature": 0.5,
-                        "max_output_tokens": settings.LLM_MAX_TOKENS,
-                    }
-                    response_stream = _gemini_client.models.generate_content_stream(
-                        model=settings.GEMINI_DEFAULT_MODEL,
-                        contents=gemini_contents,
-                        config=types.GenerateContentConfig(**config_args)
-                    )
-                    full_response = ""
-                    for chunk in response_stream:
-                        if chunk.text:
-                            full_response += chunk.text
-                            yield json.dumps({"content": chunk.text, "session_id": session_id})
-                            
-                    logger.info(f"[llm-gemini] response success via non-grounded fallback chars={len(full_response)}")
-                    yield "__FULL__" + full_response
-                    return
-                except Exception as ex:
-                    logger.error(f"[llm-gemini] Fallback retry failed: {ex}, falling back to FPT Cloud...")
-            else:
-                logger.error(f"[llm-gemini] ERROR: {e}, falling back to FPT Cloud...")
-
-    # Fallback to FPT Cloud
+    # PRIMARY: FPT Cloud Gemma-4 (ổn định, không rate limit)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(conversation_history)
     messages.append({"role": "user", "content": user_prompt})
@@ -262,7 +210,7 @@ def get_response_stream(
             messages=messages,
             stream=True,
             temperature=0.5,
-            max_tokens=settings.LLM_MAX_TOKENS, # Dùng config động từ .env
+            max_tokens=settings.LLM_MAX_TOKENS,
             top_p=0.85,
             extra_body={"enable_thinking": False},
         )
@@ -294,33 +242,18 @@ def get_response_stream(
             full_response += text
             yield json.dumps({"content": text, "session_id": session_id})
 
-        logger.info(f"[llm] response success chars={len(full_response)}")
+        logger.info(f"[llm] FPT Cloud Gemma-4 response OK chars={len(full_response)}")
         yield "__FULL__" + full_response
 
     except Exception as e:
-        logger.error(f"[llm] ERROR: {e}")
+        logger.error(f"[llm] FPT Cloud ERROR: {e}")
         err = "Dạ xin lỗi, hệ thống đang gặp sự cố. Bạn thử lại sau nhé 🙏"
         yield json.dumps({"content": err, "session_id": session_id})
         yield "__FULL__" + err
 
 
 def get_quick_response(prompt: str, max_tokens: int = 200) -> str:
-    """Gọi LLM nhanh cho task nhỏ (suggestions, etc.)."""
-    if _gemini_client:
-        try:
-            resp = _gemini_client.models.generate_content(
-                model=settings.GEMINI_DEFAULT_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction="Bạn là trợ lý giúp đề xuất câu hỏi tiếp theo ngắn gọn. Chỉ trả về các câu hỏi, không giải thích.",
-                    temperature=0.3,
-                    max_output_tokens=max_tokens,
-                )
-            )
-            return resp.text.strip()
-        except Exception as e:
-            logger.error(f"[llm-quick-gemini] ERROR: {e}, falling back to FPT Cloud...")
-
+    """Gọi FPT Cloud Gemma-4 nhanh cho task nhỏ (suggestions, etc.)."""
     try:
         resp = _client.chat.completions.create(
             model=settings.FPT_CLOUD_DEFAULT_MODEL,
@@ -335,10 +268,10 @@ def get_quick_response(prompt: str, max_tokens: int = 200) -> str:
             extra_body={"enable_thinking": False},
         )
         text = resp.choices[0].message.content or ""
-        # Strip think tags if any
         if "<think>" in text:
             text = text.split("</think>")[-1] if "</think>" in text else ""
         return text.strip()
     except Exception as e:
-        logger.error(f"[llm-quick] ERROR: {e}")
+        logger.error(f"[llm-quick] FPT Cloud ERROR: {e}")
         return ""
+

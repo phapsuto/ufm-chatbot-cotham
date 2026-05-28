@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.routes import chat, health, handoff, guest, enrollment, crm
 from app.services import cache_service, memory_service, kb_service
+from app.services.reranker_service import init_bge_reranker
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG_MODE else logging.INFO,
@@ -30,6 +31,8 @@ async def lifespan(app: FastAPI):
         os.makedirs(d, exist_ok=True)
     # Khởi tạo Knowledge Base (BM25 + Vector) — chạy ở đây thay vì module level
     kb_service.init_kb()
+    # Khởi tạo BGE-M3 ONNX Reranker (~500MB, CPU)
+    init_bge_reranker()
     yield
     memory_service.cleanup_expired_sessions()
     logger.info("👋 Chatbot đã tắt.")

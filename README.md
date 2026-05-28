@@ -1,396 +1,330 @@
-# 🎓 Cô giáo Thắm — UFM AI Chatbot Tuyển sinh Sau đại học
+# 🎓 UFM Chatbot — Cô Giáo Thắm
 
-<div align="center">
+> **Trợ lý AI tư vấn tuyển sinh Sau Đại học — Trường Đại học Tài chính - Marketing (UFM)**
 
-![Version](https://img.shields.io/badge/version-4.0.0-blue?style=for-the-badge)
-![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Gemini](https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-
-**Hệ thống Chatbot AI Tư vấn Tuyển sinh Thông minh dành cho Viện Đào tạo Sau đại học — Trường Đại học Tài chính - Marketing (UFM)**
-
-[Demo trực tuyến](#) · [Tài liệu API](#-api-endpoints) · [Hướng dẫn cài đặt](#%EF%B8%8F-hướng-dẫn-cài-đặt--vận-hành)
-
-</div>
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## ✨ Tính năng nổi bật
+## 📋 Mục lục
 
-| Tính năng | Mô tả |
-|:---|:---|
-| 🧠 **Hybrid RAG Engine** | Kết hợp BM25 + ChromaDB Vector Search + Lightweight Reranker |
-| 🤖 **Dual LLM (Gemini + FPT Cloud)** | Gemini AI làm chính với Google Search grounding, FPT Cloud Qwen3-32B làm fallback |
-| 🔍 **Google Search Grounding** | Tự động tìm kiếm Google cho câu hỏi ngoài lề (thời tiết, kiến thức tổng hợp...) |
-| 🎭 **Persona "Cô giáo Thắm"** | Giảng viên miền Nam ấm áp, xưng hô động theo vai vế người dùng |
-| ⚡ **3-Layer Caching** | HTML Cache (15 phút) + PDF OCR Cache (vĩnh viễn) + QA Semantic Cache |
-| 📊 **AI Lead Scoring + CRM** | Chấm điểm tự động 100 điểm, xác suất nhập học Sigmoid, Dashboard CRM |
-| 📋 **Đăng ký trực tuyến 3 bước** | Thu thập thông tin cá nhân → Học vấn → Upload giấy tờ |
-| 🌐 **Live Web Crawler** | Async crawler với DuckDuckGo search + Crawl4AI cho dữ liệu mới nhất |
-| 🏋️ **Lightweight Architecture** | Reranker siêu nhẹ (~4MB ONNX) thay thế model nặng ~560MB |
-
----
-
-## 🗺️ Kiến trúc Hệ thống
-
-### Tổng quan Kiến trúc
-
-```mermaid
-graph TD
-    User([👤 Học viên]) --> Query[Gửi Câu hỏi]
-    Query --> Pronoun[🎭 Nhận diện Xưng hô<br/>em/anh/chị/cô/thầy]
-    Pronoun --> QACache{QA Semantic Cache<br/>SequenceMatcher ≥ 90%?}
-    QACache -- "✅ HIT (0ms)" --> InstantReply[Phản hồi tức thì] --> End([Trả kết quả])
-    QACache -- "❌ MISS" --> NLP[🇻🇳 Underthesea NLP<br/>Word Segmentation]
-    NLP --> Router{Router Service<br/>Phân loại Intent}
-    Router -- "UFM-related" --> HybridSearch
-    Router -- "Off-topic" --> DDGSearch[🌐 DuckDuckGo Async Search<br/>httpx.AsyncClient]
-    DDGSearch --> LLMInput
-
-    HybridSearch[Hybrid Search<br/>BM25 + ChromaDB Vector] --> Rerank[⚡ Lightweight Reranker<br/>Vietnamese Keyword + FlashRank ONNX]
-    Rerank --> MetaBoost{Metadata Boost<br/>Khớp Bậc/Ngành?}
-    MetaBoost -- "Yes" --> ApplyBoost[Boost 1.2x - 1.5x] --> ScoreCheck
-    MetaBoost -- "No" --> ScoreCheck{Điểm > 0?}
-    ScoreCheck -- "✅ KB HIT" --> LLMInput[📝 Build Context + Prompt]
-    ScoreCheck -- "❌ KB MISS" --> LiveCrawl[🕷️ Crawl4AI<br/>daotaosdh.ufm.edu.vn + ufm.edu.vn]
-    LiveCrawl --> PDFCheck{Có PDF?}
-    PDFCheck -- "Yes" --> PDFOCR[📄 Tesseract OCR] --> LLMInput
-    PDFCheck -- "No" --> LLMInput
-
-    LLMInput --> GeminiLLM[🤖 Gemini AI<br/>Google Search Grounding]
-    GeminiLLM -- "Quota/Error" --> FPTFallback[🔄 FPT Cloud Qwen3-32B]
-    GeminiLLM --> Stream[📡 SSE Streaming Response]
-    FPTFallback --> Stream
-    Stream --> SaveCache[💾 Lưu QA Cache]
-    Stream --> CRMScore[📊 AI Lead Scoring]
-    CRMScore --> End
-```
-
-### Stack Công nghệ
-
-| Layer | Công nghệ | Chi tiết |
-|:---|:---|:---|
-| **LLM chính** | Google Gemini AI | `gemini-flash-latest` + Google Search grounding |
-| **LLM fallback** | FPT Cloud | `Qwen3-32B` (OpenAI-compatible API) |
-| **Embedding** | `dangvantuan/vietnamese-embedding` | SentenceTransformer, tối ưu cho tiếng Việt |
-| **Reranker** | FlashRank ONNX + Vietnamese Keyword Scorer | `ms-marco-TinyBERT-L-2-v2` (~4MB), hybrid scoring |
-| **Vector DB** | ChromaDB | Embedded mode, persistent storage |
-| **NLP** | Underthesea | Word segmentation tiếng Việt |
-| **Web Framework** | FastAPI | Async, SSE streaming, auto OpenAPI docs |
-| **Web Crawler** | Crawl4AI + httpx | Async DuckDuckGo search cho câu hỏi off-topic |
-| **OCR** | Tesseract + OpenCV | Nhận dạng chữ tiếng Việt từ PDF scan |
-| **Frontend** | Vanilla HTML/CSS/JS | Responsive, onboarding 3 bước, CRM dashboard |
+- [Tổng quan](#-tổng-quan)
+- [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
+- [Tính năng](#-tính-năng)
+- [Cây thư mục](#-cây-thư-mục)
+- [Cài đặt](#-cài-đặt)
+- [Cấu hình](#-cấu-hình)
+- [Chạy ứng dụng](#-chạy-ứng-dụng)
+- [API Endpoints](#-api-endpoints)
+- [Knowledge Base](#-knowledge-base)
+- [Công nghệ](#-công-nghệ)
 
 ---
 
-## 📚 Kho Tri thức (Knowledge Base)
+## 🌟 Tổng quan
 
-Hệ thống được đào tạo trên **272 tài liệu Markdown** bao gồm:
+**Cô Giáo Thắm** là chatbot AI mang nhân cách cô giáo miền Nam ấm áp, chuyên tư vấn tuyển sinh các chương trình **Thạc sĩ** và **Tiến sĩ** tại UFM. Hệ thống sử dụng kiến trúc **RAG (Retrieval-Augmented Generation)** kết hợp:
 
-| Nguồn | Số lượng | Nội dung |
-|:---|:---:|:---|
-| 📜 Quyết định CTĐT | 13 | Chương trình đào tạo Thạc sĩ & Tiến sĩ (9 ngành ThS + 3 ngành TS) |
-| 🌐 Website Sau ĐH | ~120 | Crawl từ `daotaosdh.ufm.edu.vn` (chi tiết ngành, điều kiện, biểu mẫu...) |
-| 🏫 Website Chính UFM | ~139 | Crawl từ `ufm.edu.vn` (tin tức, hợp tác quốc tế, hội thảo, lịch sử trường...) |
-
-### Ngành đào tạo được hỗ trợ
-
-**Thạc sĩ (9 ngành):**
-Quản trị Kinh doanh · Tài chính - Ngân hàng · Kế toán · Marketing · Quản lý Kinh tế · Kinh doanh Quốc tế · Kinh tế học · Toán Kinh tế · Luật Kinh tế
-
-**Tiến sĩ (3 ngành):**
-Quản trị Kinh doanh · Tài chính - Ngân hàng · Quản lý Kinh tế
+- 🧠 **FPT Cloud Gemma-4** — LLM chính cho chat (ổn định, không rate limit)
+- 🔍 **Gemini API + Google Search** — Tìm kiếm internet chất lượng cao
+- 📚 **Hybrid RAG** — BM25 + Vector Search + BGE-M3 Reranker ONNX
 
 ---
 
-## ⚡ Reranker Siêu nhẹ (v4.0 — Hybrid A+B)
-
-Phiên bản v4.0 thay thế hoàn toàn model reranker nặng `BAAI/bge-reranker-v2-m3` (~560MB, ~1.2GB RAM) bằng kiến trúc hybrid siêu nhẹ:
-
-| Metric | BGE-Reranker-v2-M3 (cũ) | Hybrid A+B (mới) |
-|:---|:---:|:---:|
-| **Kích thước model** | ~560MB | **~4MB** |
-| **RAM sử dụng** | ~1.2GB | **~10MB** |
-| **Tốc độ rerank 20 docs** | 200-500ms | **< 5ms** |
-| **Yêu cầu GPU** | Có (MPS/CUDA) | **Không cần** |
-
-### Cách hoạt động
+## 🏗 Kiến trúc hệ thống
 
 ```
-Layer A — Vietnamese Keyword Scorer (luôn chạy, < 1ms)
-├── Underthesea word segmentation
-├── Query term coverage (40%)
-├── Exact phrase + N-gram matching (30%)
-├── Position bonus — tiêu đề/header (15%)
-└── Keyword density (15%)
-
-Layer B — FlashRank ONNX (nếu có, ~3ms)
-├── ms-marco-TinyBERT-L-2-v2 (~4MB ONNX)
-└── ONNX Runtime optimized cho CPU
-
-Final Score = 0.4 × Layer_A + 0.6 × Layer_B
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND (static/)                       │
+│              index.html + app.js + app.css                  │
+│              CRM Dashboard: crm/index.html                  │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ SSE Stream
+┌──────────────────────▼──────────────────────────────────────┐
+│                  FastAPI Backend (app/)                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  📨 CHAT PIPELINE (routes/chat.py)                          │
+│  ┌─────────┐  ┌──────────┐  ┌───────────┐  ┌────────────┐  │
+│  │ Pronoun  │→│ KB Search │→│ Reranker  │→│ LLM Stream │  │
+│  │ Detect   │  │ BM25+Vec │  │ BGE-M3   │  │ Gemma-4    │  │
+│  └─────────┘  └──────────┘  └───────────┘  └────────────┘  │
+│                                                             │
+│  🔍 SEARCH ENGINE                                           │
+│     PRIMARY:  Gemini API + Google Search Grounding           │
+│     FALLBACK: DuckDuckGo HTML API                           │
+│                                                             │
+│  🧠 CHAT LLM                                                │
+│     FPT Cloud Gemma-4 (ổn định, không rate limit)           │
+│                                                             │
+│  📊 RERANKER                                                │
+│     BGE-Reranker-v2-M3 ONNX INT8 (~500MB, CPU only)        │
+│     Hybrid: 0.3×Keyword + 0.7×CrossEncoder                 │
+│                                                             │
+│  📄 PDF EXTRACTION (3-tier fallback)                        │
+│     PyMuPDF → Jina Reader → Tesseract OCR                   │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  📋 CRM (routes/crm.py) — Lead tracking & scoring          │
+│  📝 Enrollment (routes/enrollment.py) — Đăng ký online     │
+│  👋 Guest (routes/guest.py) — Xác định danh tính           │
+│  🤝 Handoff (routes/handoff.py) — Chuyển giao nhân viên    │
+│  ❤️ Health (routes/health.py) — Monitoring                  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🎭 Persona "Cô giáo Thắm" & Xưng hô Động
+## ✨ Tính năng
 
-Chatbot đóng vai **Cô giáo Thắm** — giảng viên miền Nam ấm áp, tận tâm với hệ thống xưng hô tự động:
+### 💬 Chat AI thông minh
+- **Nhân cách Cô Giáo Thắm**: Xưng hô tự nhiên theo vai vế (em/cô, anh-chị/em)
+- **RAG chính xác**: Trả lời dựa trên dữ liệu thực từ 272 file knowledge base
+- **Anti-hallucination**: Nguyên tắc vàng — không bịa số liệu, nói thẳng khi thiếu dữ liệu
+- **Streaming response**: SSE real-time, phản hồi tức thì
 
-| Người dùng xưng | Cô Thắm xưng | Cô Thắm gọi user | Câu chờ hiển thị |
-|:---|:---:|:---:|:---|
-| "**em** muốn hỏi..." | **cô** | **em** | "Đợi **cô Thắm** xíu nha..." |
-| "**anh** cần biết..." | **em** | **anh** | "Đợi **em Thắm** xíu nha..." |
-| "**chị** muốn hỏi..." | **em** | **chị** | "Đợi **em Thắm** xíu nha..." |
-| "cho **cô** hỏi..." | **em** | **cô** | "Đợi **em Thắm** xíu nha..." |
-| Không rõ | Đoán từ tuổi | **bạn** | Tự động theo năm sinh |
+### 🔍 Tìm kiếm đa tầng
+- **Offline KB**: Hybrid Search (BM25 + ChromaDB Vector) → BGE-M3 Reranker
+- **Online Search**: Gemini API + Google Search Grounding (fallback: DuckDuckGo)
+- **PDF extraction**: 3 tầng fallback (PyMuPDF → Jina Reader → Tesseract OCR)
 
-**Đặc điểm:**
-- 🗣️ Phong cách miền Nam tự nhiên: "Dạ em ơi...", "Ồ hay quá!", "Cô nghĩ vậy nè..."
-- 😊 Phản ứng cảm xúc: vui khi user đủ điều kiện, an ủi khi lo lắng, thành thật khi không tìm thấy
-- 🔄 Nhất quán xuyên suốt cuộc trò chuyện
-- 🌐 Hỏi tào lao cũng trả lời được (Google Search grounding)
+### 📊 CRM & Lead Management
+- Dashboard quản lý lead với scoring engine
+- Tự động phân loại: HOT / WARM / COLD / LOST
+- Export CSV, timeline hoạt động, ghi chú
 
----
-
-## 📈 AI Lead Scoring & CRM Dashboard
-
-### Cơ cấu Phân bổ Điểm (Max 100 điểm)
-
-| Nhóm Tiêu Chí | Điểm Tối Đa | Chi Tiết |
-|:---|:---:|:---|
-| **Hồ sơ năng lực** | **25đ** | Đã tốt nghiệp ĐH (+10đ) · Ngành liên quan (+8đ) · Tuổi vàng 22-45 (+4đ) · Có kinh nghiệm (+3đ) |
-| **Mức độ tương tác** | **40đ** | Hỏi học phí (+15đ) · Điều kiện ĐV (+10đ) · Lịch học (+8đ) · Hồ sơ (+8đ) · Deadline (+7đ) · ≥5 câu hỏi (+6đ) |
-| **Hành động cụ thể** | **35đ** | Nộp hồ sơ (+35đ) · Hoàn thành ≥80% (+28đ) · Bắt đầu ĐK (+12đ) · Khẩn cấp (+10đ) · Quay lại (+8đ) |
-
-### Xác suất Nhập học (Sigmoid)
-
-$$P(\text{enroll}) = \frac{1}{1 + e^{-0.1 \times (\text{Score} - 55)}}$$
-
-### Phân loại Lead
-
-| Điểm | Grade | Trạng thái | Nhãn CRM |
-|:---|:---:|:---|:---|
-| ≥ 75 | **A** | `hot_lead` | 🔥 Tiềm năng cao |
-| 55–74 | **B** | `interested` | ⭐ Quan tâm |
-| 35–54 | **C** | `follow_up` | 💡 Cần theo dõi |
-| < 35 | **D** | `new` | ❄️ Mới tiếp cận |
+### 📝 Enrollment (Đăng ký online)
+- Form đăng ký dự tuyển tích hợp
+- Lưu trữ hồ sơ có cấu trúc
 
 ---
 
-## ⚡ Caching 3 Tầng
+## 📁 Cây thư mục
 
-| Tầng | Loại | TTL | Chi tiết |
-|:---|:---|:---:|:---|
-| **1. HTML Cache** | In-Memory (TTLCache) | 15 phút | Cache trang web crawl trực tuyến |
-| **2. PDF Cache** | Persistent Disk | Vĩnh viễn | OCR text lưu `./app/database/pdfs/`, MD5 hash URL |
-| **3. QA Cache** | Memory + Disk Sync | Vĩnh viễn | SequenceMatcher ≥90%, giới hạn 1000 QA, scan 100 mới nhất |
-
----
-
-## 🏗️ Cấu trúc Dự án
-
-```text
-ufm-chatbot-cotham/
+```
+chtabot DH Tai Chinh/
 ├── app/
-│   ├── config.py                 # Cấu hình tập trung (.env) — Pydantic Settings
-│   ├── main.py                   # FastAPI entrypoint, lifespan, CORS, static mount
-│   ├── models.py                 # Pydantic schemas (Chat, Guest, CRM, Enrollment)
-│   ├── database/                 # Dữ liệu runtime (QA cache, PDF OCR text)
-│   │   ├── qa_cache.json         # QA Semantic Cache (1000 QA mới nhất)
-│   │   └── pdfs/                 # PDF OCR text cache (persistent)
-│   ├── knowledge_base/           # 272 tài liệu Markdown (QĐ + website crawl)
+│   ├── config.py                # Cấu hình từ .env
+│   ├── main.py                  # FastAPI app + lifespan
+│   ├── models.py                # Pydantic models
+│   ├── knowledge_base/          # 272 file .md (3.6MB RAG data)
 │   ├── routes/
-│   │   ├── chat.py               # POST /api/chat — RAG pipeline + SSE streaming
-│   │   ├── crm.py                # CRM dashboard API (login, leads, analytics)
-│   │   ├── enrollment.py         # Đăng ký nhập học 3 bước + upload giấy tờ
-│   │   ├── guest.py              # Onboarding, session init, profile
-│   │   ├── handoff.py            # Chuyển giao sang tư vấn viên thực tế
-│   │   └── health.py             # GET /health — Liveness check
+│   │   ├── chat.py              # Chat pipeline chính
+│   │   ├── crm.py               # CRM Dashboard API
+│   │   ├── enrollment.py        # Đăng ký dự tuyển
+│   │   ├── guest.py             # Xác định danh tính
+│   │   ├── handoff.py           # Chuyển giao nhân viên
+│   │   └── health.py            # Health check + OCR diagnostic
 │   └── services/
-│       ├── llm_service.py        # Dual LLM: Gemini AI (chính) + FPT Cloud (fallback)
-│       ├── kb_service.py         # Hybrid RAG: BM25 + Vector + Reranker + Metadata Boost
-│       ├── reranker_service.py   # ⚡ Lightweight Hybrid Reranker (Keyword + FlashRank ONNX)
-│       ├── vector_service.py     # ChromaDB + vietnamese-embedding SentenceTransformer
-│       ├── crawler_service.py    # Async web crawler (Crawl4AI + DuckDuckGo httpx)
-│       ├── cache_service.py      # 3-layer caching (HTML, PDF, QA Semantic)
-│       ├── memory_service.py     # Session memory, pronoun detection, conversation history
-│       ├── context_service.py    # Context builder + confidence estimation
-│       ├── pdf_service.py        # PDF OCR (Tesseract + OpenCV)
-│       ├── scoring_engine.py     # AI Lead Scoring engine (Sigmoid probability)
-│       ├── crm_service.py        # CRM data management + lead tracking
-│       ├── suggestion_service.py # Gợi ý câu hỏi contextual
-│       ├── enrollment_service.py # Enrollment workflow management
-│       ├── handoff_service.py    # Handoff to human advisor
-│       └── router_service.py     # Intent classification + routing
+│       ├── llm_service.py       # FPT Cloud Gemma-4 (chat LLM)
+│       ├── kb_service.py        # Hybrid Search (BM25 + Vector)
+│       ├── reranker_service.py  # BGE-M3 ONNX INT8 Reranker
+│       ├── vector_service.py    # ChromaDB embedding
+│       ├── crawler_service.py   # Gemini Search + web crawl
+│       ├── context_service.py   # Gom context + source tracking
+│       ├── memory_service.py    # Session memory (pronoun, history)
+│       ├── cache_service.py     # HTML/PDF/QA cache
+│       ├── pdf_service.py       # PDF extraction (3-tier)
+│       ├── router_service.py    # Intent classification
+│       ├── crm_service.py       # CRM data layer
+│       ├── enrollment_service.py # Enrollment data
+│       ├── handoff_service.py   # Handoff logic
+│       ├── scoring_engine.py    # Lead scoring
+│       └── suggestion_service.py # Gợi ý câu hỏi
 ├── static/
-│   ├── index.html                # Giao diện chat responsive
-│   ├── app.js                    # Frontend logic (onboarding, chat, enrollment)
-│   ├── style.css                 # UI styling
-│   └── crm/                     # CRM Dashboard (login, leads table, analytics)
-├── data/models/                  # FlashRank ONNX model cache (~4MB)
-├── Dockerfile                    # Docker image (Poppler + Tesseract OCR + Python)
-├── docker-compose.yml            # Container orchestration + volumes
-├── requirements.txt              # Python dependencies
-├── .env.example                  # Template biến môi trường
-└── README.md
+│   ├── index.html               # Chat UI
+│   ├── app.js                   # Frontend logic
+│   ├── app.css                  # Styles
+│   └── crm/                     # CRM Dashboard UI
+├── data/                        # Runtime data (gitignored)
+├── requirements.txt             # Python dependencies
+├── Dockerfile                   # Docker image
+├── docker-compose.yml           # Docker Compose
+├── .env.example                 # Template biến môi trường
+└── .gitignore
 ```
 
 ---
 
-## 🛠️ Hướng dẫn Cài đặt & Vận hành
+## 🚀 Cài đặt
 
-### Yêu cầu Hệ thống
+### Yêu cầu
+- Python 3.11+
+- 4GB RAM (cho BGE-M3 ONNX Reranker)
 
-| Yêu cầu | Tối thiểu | Khuyến nghị |
-|:---|:---|:---|
-| **OS** | Linux / macOS / Windows | Ubuntu 22.04+ hoặc macOS |
-| **Python** | 3.10+ | 3.11+ |
-| **RAM** | 2GB | 4GB+ |
-| **Disk** | 2GB | 5GB+ |
-| **GPU** | Không bắt buộc | Có GPU sẽ nhanh hơn cho embedding |
-
-> **📝 Lưu ý:** Phiên bản v4.0 đã tối ưu hóa giảm ~1.2GB RAM nhờ thay thế reranker nặng bằng FlashRank ONNX siêu nhẹ.
-
-### Cách 1: Docker (Khuyên dùng)
+### Bước 1 — Clone & setup
 
 ```bash
-# 1. Clone repo
 git clone https://github.com/phapsuto/ufm-chatbot-cotham.git
 cd ufm-chatbot-cotham
 
-# 2. Tạo file .env
-cp .env.example .env
-# Sửa file .env, thêm API keys:
-#   GEMINI_API_KEY=your_gemini_api_key
-#   FPT_CLOUD_API_KEY=your_fpt_cloud_api_key
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# 3. Khởi chạy
-docker compose up --build -d
-
-# 4. Truy cập
-# Chatbot: http://localhost:8001
-# CRM:     http://localhost:8001/crm
+pip install -r requirements.txt
 ```
 
-### Cách 2: Local Development
+### Bước 2 — Tải BGE-M3 Reranker (chỉ cần 1 lần)
 
 ```bash
-# 1. Cài đặt hệ thống (macOS)
-brew install poppler tesseract tesseract-lang
+# Tạo thư mục shared (dùng chung nhiều app)
+mkdir -p ~/shared_models/bge-reranker-v2-m3-onnx-int8
 
-# 1. Cài đặt hệ thống (Ubuntu/Debian)
-sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-vie
+# Tải model ONNX INT8 (~500MB)
+python -c "
+from optimum.onnxruntime import ORTModelForSequenceClassification
+from transformers import AutoTokenizer
 
-# 2. Cài đặt Python dependencies
-pip3 install -r requirements.txt
+model_name = 'BAAI/bge-reranker-v2-m3'
+save_path = '$HOME/shared_models/bge-reranker-v2-m3-onnx-int8'
 
-# 3. Tạo .env
-cp .env.example .env
-# Thêm GEMINI_API_KEY và/hoặc FPT_CLOUD_API_KEY
+# Export + Quantize sang INT8
+model = ORTModelForSequenceClassification.from_pretrained(model_name, export=True)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-# 4. Khởi chạy
-uvicorn app.main:app --port 8000 --reload
-
-# 5. Truy cập: http://localhost:8000
+from optimum.onnxruntime import ORTQuantizer
+from optimum.onnxruntime.configuration import AutoQuantizationConfig
+quantizer = ORTQuantizer.from_pretrained(model)
+qconfig = AutoQuantizationConfig.avx512_vnni(is_static=False)
+quantizer.quantize(save_dir=save_path, quantization_config=qconfig)
+tokenizer.save_pretrained(save_path)
+print('✅ Model saved to', save_path)
+"
 ```
 
-### Tải Model AI lần đầu
+### Bước 3 — Cấu hình .env
 
-Lần chạy đầu tiên, hệ thống sẽ tự động tải:
-
-| Model | Kích thước | Mục đích |
-|:---|:---:|:---|
-| `dangvantuan/vietnamese-embedding` | ~400MB | Vector embedding tiếng Việt |
-| `ms-marco-TinyBERT-L-2-v2` | ~4MB | FlashRank ONNX reranker |
-
-Để tăng tốc tải 10x:
 ```bash
-export HF_HUB_ENABLE_HF_TRANSFER=1
+cp .env.example .env
+# Sửa .env với API keys thực
 ```
 
 ---
 
-## ⚙️ Biến Môi trường (.env)
+## ⚙️ Cấu hình
 
-| Biến | Mặc định | Mô tả |
-|:---|:---:|:---|
-| `GEMINI_API_KEY` | *(trống)* | **(Khuyên dùng)** API Key Google Gemini AI |
-| `GEMINI_DEFAULT_MODEL` | `gemini-flash-latest` | Model Gemini mặc định |
-| `FPT_CLOUD_API_KEY` | *(trống)* | API Key FPT Cloud (fallback LLM) |
-| `FPT_CLOUD_BASE_URL` | `https://mkp-api.fptcloud.com/v1` | Endpoint FPT Cloud |
-| `FPT_CLOUD_DEFAULT_MODEL` | `Qwen3-32B` | Model FPT Cloud mặc định |
-| `LLM_TEMPERATURE` | `0.7` | Độ sáng tạo (0.0–1.0) |
-| `LLM_MAX_TOKENS` | `2048` | Giới hạn token phản hồi |
-| `ALLOWED_DOMAIN` | `daotaosdh.ufm.edu.vn` | Domain được phép crawl |
-| `CRM_DASHBOARD_PASSWORD` | `ufm_crm_2026` | Mật khẩu CRM Dashboard |
-| `PORT` | `8000` | Port ứng dụng |
-| `DEBUG_MODE` | `False` | Bật log debug chi tiết |
-| `TESSERACT_LANG` | `vie+eng` | Ngôn ngữ OCR |
+| Biến | Mô tả | Mặc định |
+|:---|:---|:---|
+| `FPT_CLOUD_API_KEY` | API key FPT Cloud (chat LLM) | *required* |
+| `FPT_CLOUD_DEFAULT_MODEL` | Model chat | `gemma-4-31B-it` |
+| `GEMINI_API_KEY` | API key Gemini (search grounding) | *optional* |
+| `GEMINI_DEFAULT_MODEL` | Model search | `gemini-flash-latest` |
+| `LLM_MAX_TOKENS` | Token tối đa mỗi response | `4096` |
+| `ALLOWED_DOMAIN` | Domain crawl cho phép | `daotaosdh.ufm.edu.vn` |
+| `CRM_DASHBOARD_PASSWORD` | Mật khẩu CRM | `ufm_crm_2026` |
+
+---
+
+## 🏃 Chạy ứng dụng
+
+### Development
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Docker
+```bash
+docker compose up -d
+```
+
+### Truy cập
+- 💬 **Chat**: http://localhost:8000
+- 📊 **CRM**: http://localhost:8000/crm
+- ❤️ **Health**: http://localhost:8000/health
 
 ---
 
 ## 🔌 API Endpoints
 
-### Chat & RAG
-| Method | Endpoint | Mô tả |
-|:---:|:---|:---|
-| `POST` | `/api/chat` | Chat streaming (SSE) — RAG pipeline đầy đủ |
+### Chat
+| Method | Path | Mô tả |
+|:---|:---|:---|
+| `POST` | `/api/chat` | Gửi tin nhắn (SSE stream) |
+| `GET` | `/api/suggestions` | Gợi ý câu hỏi tiếp theo |
 
-### Guest & Onboarding
-| Method | Endpoint | Mô tả |
-|:---:|:---|:---|
-| `POST` | `/api/guest/register` | Đăng ký khách, tạo session |
+### Guest & Enrollment
+| Method | Path | Mô tả |
+|:---|:---|:---|
+| `POST` | `/api/guest/identify` | Xác định danh tính |
+| `POST` | `/api/enroll/submit` | Gửi đăng ký dự tuyển |
 
-### Enrollment (Đăng ký nhập học)
-| Method | Endpoint | Mô tả |
-|:---:|:---|:---|
-| `POST` | `/api/enrollment/start` | Bắt đầu hồ sơ đăng ký |
-| `POST` | `/api/enrollment/info` | Cập nhật thông tin từng bước |
-| `POST` | `/api/enrollment/upload` | Upload giấy tờ (PDF/JPG/PNG) |
-| `POST` | `/api/enrollment/submit` | Nộp hồ sơ hoàn tất |
+### CRM Dashboard
+| Method | Path | Mô tả |
+|:---|:---|:---|
+| `GET` | `/api/crm/leads` | Danh sách leads |
+| `GET` | `/api/crm/leads/{id}` | Chi tiết lead |
+| `POST` | `/api/crm/leads/{id}/notes` | Ghi chú lead |
+| `GET` | `/api/crm/export/csv` | Export CSV |
+| `GET` | `/api/crm/stats` | Thống kê tổng hợp |
 
-### CRM & Quản trị
-| Method | Endpoint | Mô tả |
-|:---:|:---|:---|
-| `POST` | `/api/crm/login` | Đăng nhập CRM Dashboard |
-| `GET` | `/api/crm/leads` | Danh sách leads + điểm số + xác suất |
-| `GET` | `/api/crm/lead/{session_id}` | Chi tiết 1 lead (lịch sử, phân tích) |
-| `POST` | `/api/handoff` | Chuyển giao sang tư vấn viên |
-
-### System
-| Method | Endpoint | Mô tả |
-|:---:|:---|:---|
-| `GET` | `/health` | Health check (`{"status": "ok", "version": "4.0.0"}`) |
+### Admin & Health
+| Method | Path | Mô tả |
+|:---|:---|:---|
+| `GET` | `/health` | Health check |
+| `GET` | `/health/detail` | Chi tiết cache & sessions |
+| `POST` | `/admin/clear-cache` | Xoá cache (cần secret) |
 
 ---
 
-## 📄 Changelog
+## 📚 Knowledge Base
 
-### v4.0.0 (2025-05-28)
-- 🔄 **Dual LLM:** Gemini AI (chính) + FPT Cloud Qwen3-32B (fallback)
-- 🌐 **Google Search Grounding:** Tự động search Google cho câu hỏi off-topic
-- ⚡ **Lightweight Reranker:** FlashRank ONNX (~4MB) thay thế BGE-M3 (~560MB), giảm 1.2GB RAM
-- 🎭 **Dynamic Typing Messages:** "Đợi cô/em Thắm xíu nha" theo ngôi xưng
-- 🔧 **Performance Audit:** Fix 14 issues (async DDG search, KB init, cache optimization)
-- 🌐 **Async Web Search:** DuckDuckGo search chuyển sang httpx async (không còn block event loop)
-- 📚 **272 tài liệu KB:** Mở rộng từ website chính UFM (`ufm.edu.vn`)
+Dữ liệu RAG gồm **272 file Markdown** (~3.6MB), được crawl và chuẩn hoá từ website chính thức [daotaosdh.ufm.edu.vn](https://daotaosdh.ufm.edu.vn):
 
-### v3.x
-- Hybrid RAG (BM25 + ChromaDB Vector)
-- AI Lead Scoring + CRM Dashboard
-- Onboarding 3 bước + Enrollment
-- QA Semantic Cache
+| Prefix | Nội dung | Số lượng |
+|:---|:---|:---|
+| `sdh_ts_*` | Chương trình Tiến sĩ | ~10 |
+| `sdh_ths_*` | Chương trình Thạc sĩ (9 ngành) | ~30 |
+| `sdh_*` | Quy chế, biểu mẫu, học phí SĐH | ~20 |
+| `web_main_*` | Tin tức, hợp tác quốc tế, sự kiện | ~200 |
+| `web_tu-van_*` | Tư vấn tuyển sinh | ~10 |
 
----
+### Cập nhật Knowledge Base
 
-## 📜 License
-
-Dự án được nghiên cứu và phát triển chuyên biệt nhằm tối ưu hóa công tác tuyển sinh Sau đại học của **Trường Đại học Tài chính - Marketing (UFM)**.
+Thêm file `.md` mới vào `app/knowledge_base/` → restart server → tự động index lại.
 
 ---
 
-<div align="center">
-  <sub>Built with ❤️ for UFM Postgraduate Admissions</sub>
-</div>
+## 🛠 Công nghệ
+
+| Thành phần | Công nghệ | Ghi chú |
+|:---|:---|:---|
+| **Backend** | FastAPI + Uvicorn | Async, SSE streaming |
+| **Chat LLM** | FPT Cloud Gemma-4 31B | PRIMARY — ổn định |
+| **Search** | Gemini API + Google Search | Grounding chất lượng cao |
+| **Embedding** | `all-MiniLM-L6-v2` + ChromaDB | Vector search |
+| **BM25** | `rank_bm25` (in-memory) | Keyword search |
+| **Reranker** | BGE-M3 ONNX INT8 (~500MB) | 98% accuracy, CPU only |
+| **PDF** | PyMuPDF + Jina + Tesseract | 3-tier fallback |
+| **Frontend** | Vanilla HTML/CSS/JS | Lightweight, no framework |
+| **Deploy** | Docker + Docker Compose | Single-container |
+
+---
+
+## 📝 Changelog
+
+### v5.0.0 (2026-05-28) — Kiến trúc phân vai
+- 🔄 **Phân vai LLM**: FPT Cloud Gemma-4 = chat, Gemini API = search grounding
+- 🔍 **Nâng cấp search**: Gemini Google Search thay DuckDuckGo (fallback DDG)
+- 🐛 **Fix double KB search**: context_service không còn gọi search_kb() lần 2
+- 🎯 **Hạ ngưỡng reranker**: 0.6 → 0.35 (phù hợp hybrid BGE-M3)
+- 🛡 **Anti-hallucination**: Thêm NGUYÊN TẮC VÀNG + thứ tự ưu tiên nguồn
+- 🧹 **Code cleanup**: Xoá 8 unused imports, 5 unused dependencies, 22 temp scripts
+
+### v4.0.0 (2026-05-28) — BGE-M3 ONNX Reranker
+- ⚡ Reranker mới: BGE-M3 ONNX INT8 (98% accuracy, ~500MB, CPU)
+- 🔗 Shared model architecture (`~/shared_models/`)
+- 📄 PDF 3-tier fallback (PyMuPDF → Jina → Tesseract OCR)
+- 📊 CRM Dashboard với lead scoring engine
+
+### v3.0.0 — Hybrid Search + Vietnamese NLP
+- 🔍 Hybrid Search: BM25 + Vector + Metadata Boosting
+- 🇻🇳 Vietnamese tokenizer (underthesea)
+- 💾 QA Cache cho câu hỏi lặp
+
+---
+
+## 📄 License
+
+MIT License — xem [LICENSE](LICENSE)

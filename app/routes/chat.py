@@ -87,9 +87,10 @@ async def chat(req: ChatRequest):
 
     kb_chunks = kb_service.search_kb(search_query, top_k=5, level=level, major=major)
     highest_score = max(chunk["score"] for chunk in kb_chunks) if kb_chunks else 0.0
-    # Ngưỡng khớp mạnh từ Reranker BGE-M3 (xác suất 0.0 đến 1.0) thường từ >= 0.6
-    kb_has_strong_match = highest_score >= 0.6
-    logger.info(f"[pipeline] Offline KB check: search_query='{search_query[:40]}' matches={len(kb_chunks)} highest_score={highest_score:.2f} (strong_match={kb_has_strong_match})")
+    # Ngưỡng khớp mạnh từ Hybrid Reranker (0.3*keyword + 0.7*BGE-M3)
+    # BGE-M3 sigmoid score 0.3+ đã là match tốt, nhân 0.7 ≈ 0.21, cộng keyword ≈ 0.35
+    kb_has_strong_match = highest_score >= 0.35
+    logger.info(f"[pipeline] Offline KB: query='{search_query[:40]}' matches={len(kb_chunks)} best_score={highest_score:.3f} (strong={kb_has_strong_match})")
     
     # 4. Crawl HTML hoặc Tìm kiếm tự do trên Internet nếu là câu hỏi ngoài lề
     html_contents = {}
@@ -105,12 +106,12 @@ async def chat(req: ChatRequest):
 
     is_general = False
     if not kb_has_strong_match:
-        # Nếu điểm số khớp offline rất thấp, hoặc là câu hỏi chung/tào lao không liên quan trực tiếp đến UFM
-        if highest_score < 0.45 or intent == "general" or not is_ufm_related(message):
-            logger.info(f"[pipeline] Unrelated/General/Tào lao question detected (score={highest_score:.4f}, intent={intent}). Triggering DuckDuckGo Internet Search for: '{message}'")
-            ddg_results = await crawler_service.web_search_ddg(message)
-            if ddg_results:
-                html_contents["internet_search"] = ddg_results
+        # Nếu điểm số khớp offline rất thấp (< 0.15 = gần như không liên quan)
+        if highest_score < 0.15 or (intent == "general" and not is_ufm_related(message)):
+            logger.info(f"[pipeline] Unrelated/General question (score={highest_score:.4f}, intent={intent}). Triggering Gemini Google Search for: '{message}'")
+            search_results = await crawler_service.web_search_gemini(message)
+            if search_results:
+                html_contents["internet_search"] = search_results
             is_general = True
         elif routing.get("urls"):
             logger.info("[pipeline] KB match low but UFM-related. Falling back to Web Crawler...")
@@ -126,7 +127,7 @@ async def chat(req: ChatRequest):
 
     # 5. Build context + context summary (có pronoun_role)
     mem_summary = memory_service.get_context_summary(session_id)
-    context, sources_used = context_service.build_context(html_contents, pdf_contents, mem_summary, message, search_query=search_query, level=level, major=major)
+    context, sources_used = context_service.build_context(html_contents, pdf_contents, mem_summary, message, kb_chunks=kb_chunks)
 
     # 6. Pre-compute metadata
     # Nếu có kb_chunks với điểm cao, độ tự tin tự động đạt mức cao (1.0)

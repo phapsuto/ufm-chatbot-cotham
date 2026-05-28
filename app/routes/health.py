@@ -2,7 +2,6 @@
 import os
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
 
 from app.models import HealthResponse
 from app.services import cache_service, memory_service, pdf_service
@@ -19,7 +18,7 @@ async def health():
 async def health_detail():
     return {
         "status": "ok",
-        "version": "3.0.0",
+        "version": "4.0.0",
         "cache": cache_service.stats(),
         "sessions": memory_service.session_count(),
     }

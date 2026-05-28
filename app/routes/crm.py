@@ -1,6 +1,5 @@
 """app/routes/crm.py — CRM Dashboard API endpoints (v4)"""
 import hashlib
-import json
 import re
 import logging
 from typing import Optional
