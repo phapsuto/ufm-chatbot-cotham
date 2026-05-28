@@ -122,7 +122,7 @@ def calculate_lead_score(lead: dict) -> dict:
         profile_pts += 8
         profile_details.append({"diem": 8, "ly_do": "Ngành tốt nghiệp liên quan UFM"})
 
-    age = 2026 - lead.get("nam_sinh", 2000)
+    age = datetime.now().year - lead.get("nam_sinh", 2000)
     if 22 <= age <= 45:
         profile_pts += 4
         profile_details.append({"diem": 4, "ly_do": f"Độ tuổi phù hợp ({age} tuổi)"})

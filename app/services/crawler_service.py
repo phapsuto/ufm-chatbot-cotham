@@ -11,7 +11,9 @@ from bs4 import BeautifulSoup
 from app.config import settings
 from app.services import cache_service
 
-warnings.filterwarnings("ignore")
+import urllib3
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger("ufm-chatbot")
 
 HEADERS = {
@@ -142,17 +144,17 @@ async def crawl_multiple(urls: list[str], max_urls: int = 4) -> dict[str, str]:
     return results
 
 
-def web_search_ddg(query: str) -> str:
+async def web_search_ddg(query: str) -> str:
     """Tra cứu thông tin tự do trên Internet qua DuckDuckGo HTML API (Miễn phí 100% & Không cần API Key)"""
     try:
-        import requests
         url = "https://html.duckduckgo.com/html/"
-        headers = {
+        ddg_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         }
-        # Gửi yêu cầu tìm kiếm dạng POST lên DuckDuckGo
-        resp = requests.post(url, data={"q": query}, headers=headers, timeout=8, verify=False)
+        # Gửi yêu cầu tìm kiếm dạng POST lên DuckDuckGo — async để không block event loop
+        async with httpx.AsyncClient(timeout=8.0, verify=False) as ddg_client:
+            resp = await ddg_client.post(url, data={"q": query}, headers=ddg_headers)
         if resp.status_code != 200:
             logger.warning(f"[web-search] DuckDuckGo search returned status {resp.status_code}")
             return ""

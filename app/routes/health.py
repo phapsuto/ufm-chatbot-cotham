@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
-    return HealthResponse(status="ok", version="3.0.0")
+    return HealthResponse(status="ok", version="4.0.0")
 
 
 @router.get("/health/detail")

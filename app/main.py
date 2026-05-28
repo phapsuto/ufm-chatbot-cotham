@@ -28,6 +28,8 @@ async def lifespan(app: FastAPI):
     # Ensure data directories exist
     for d in ["data", "data/enrollments", "data/crm"]:
         os.makedirs(d, exist_ok=True)
+    # Khởi tạo Knowledge Base (BM25 + Vector) — chạy ở đây thay vì module level
+    kb_service.init_kb()
     yield
     memory_service.cleanup_expired_sessions()
     logger.info("👋 Chatbot đã tắt.")

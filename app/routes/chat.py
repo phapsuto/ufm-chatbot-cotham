@@ -11,7 +11,7 @@ from app.models import ChatRequest
 from app.services import (
     router_service, crawler_service, pdf_service,
     context_service, memory_service, suggestion_service,
-    llm_service, crm_service, cache_service
+    llm_service, crm_service, cache_service, kb_service
 )
 
 logger = logging.getLogger("ufm-chatbot")
@@ -37,7 +37,6 @@ async def chat(req: ChatRequest):
         logger.info(f"[pipeline] Using QA Cache for '{message[:20]}'")
         
         def generate_cached():
-            import asyncio
             # Giả lập stream cực nhanh
             chunk_size = max(5, len(cached_answer) // 20)
             for i in range(0, len(cached_answer), chunk_size):
@@ -72,7 +71,6 @@ async def chat(req: ChatRequest):
         )
 
     # 3. Tra cứu Offline KB trước (BM25 siêu tốc)
-    from app.services import kb_service
     # Mở rộng câu hỏi dựa vào ngữ cảnh bộ nhớ để tránh mất context khi hỏi tiếp (follow-up)
     search_keywords = memory_service.get_search_expansion_keywords(session_id, message)
     search_query = message
@@ -110,7 +108,7 @@ async def chat(req: ChatRequest):
         # Nếu điểm số khớp offline rất thấp, hoặc là câu hỏi chung/tào lao không liên quan trực tiếp đến UFM
         if highest_score < 0.45 or intent == "general" or not is_ufm_related(message):
             logger.info(f"[pipeline] Unrelated/General/Tào lao question detected (score={highest_score:.4f}, intent={intent}). Triggering DuckDuckGo Internet Search for: '{message}'")
-            ddg_results = crawler_service.web_search_ddg(message)
+            ddg_results = await crawler_service.web_search_ddg(message)
             if ddg_results:
                 html_contents["internet_search"] = ddg_results
             is_general = True
@@ -175,13 +173,15 @@ async def chat(req: ChatRequest):
             for s in filtered_sources
         ]
 
-        # Send metadata
+        # Send metadata (kèm thông tin xưng hô để frontend hiển thị typing message đúng)
+        pronoun_ctx = memory_service.get_or_create_session(session_id)["context"].get("pronoun_role") or {}
         meta = json.dumps({
             "done": True,
             "session_id": session_id,
             "sources": sources_json,
             "suggestions": suggestions,
             "requires_handoff": requires_handoff,
+            "co_tham_xung": pronoun_ctx.get("co_tham_xung", "em"),
         })
         yield f"data: {meta}\n\n"
         yield "data: [DONE]\n\n"

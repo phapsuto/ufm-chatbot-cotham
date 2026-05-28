@@ -76,7 +76,7 @@ Trả về đúng 3 câu, mỗi câu trên một dòng, không đánh số, khô
 
         # Parse response
         lines = [line.strip().lstrip("0123456789.-) ") for line in response.strip().split("\n") if line.strip()]
-        suggestions = [l for l in lines if 5 < len(l) < 60 and "?" in l or len(l) > 10][:3]
+        suggestions = [l for l in lines if 5 < len(l) < 60 and ("?" in l or len(l) > 10)][:3]
 
         if len(suggestions) >= 2:
             logger.info(f"[suggest] LLM generated {len(suggestions)} suggestions")

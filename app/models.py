@@ -36,7 +36,7 @@ class HandoffResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    version: str = "3.0.0"
+    version: str = "4.0.0"
 
 
 # ══════════════════════════════════

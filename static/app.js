@@ -6,19 +6,35 @@ const state = {
   hasWelcome: true,
   guestProfile: null,
   enrollmentId: null,
+  coThamXung: null, // "cô" hoặc "em" — xác định từ vai vế user
 };
 
 const $ = (s) => document.querySelector(s);
 const chatArea = () => $('#chat-area');
 const inputEl = () => $('#msg-input');
 
-const TYPING_MESSAGES = [
-  "Cô Thắm đang tìm thông tin trên website UFM...",
-  "Để cô xem thông tin mới nhất cho bạn nhé...",
-  "Đang kiểm tra dữ liệu từ trường...",
-  "Cô đang tra cứu thông tin chính xác nhất...",
-  "Một chút nhé, cô đang tìm...",
-];
+// Tạo câu chờ động dựa vào vai vế xưng hô
+// Nếu user xưng "em" → cô Thắm xưng "cô" → "Đợi cô Thắm xíu nha"
+// Nếu user xưng "anh/chị/thầy/cô" → cô Thắm xưng "em" → "Đợi em Thắm xíu nha"
+function getTypingMessage() {
+  const xung = state.coThamXung || _guessInitialXung();
+  const name = xung === 'cô' ? 'cô Thắm' : 'em Thắm';
+  const messages = [
+    `Đợi ${name} xíu nha, đang tìm thông tin trên website UFM...`,
+    `Đợi ${name} xíu nha, đang kiểm tra dữ liệu từ trường...`,
+    `Đợi ${name} xíu nha, đang tra cứu thông tin chính xác nhất...`,
+    `Đợi ${name} xíu nha, một chút là có câu trả lời liền...`,
+    `${xung === 'cô' ? 'Để cô' : 'Để em'} xem thông tin mới nhất cho ${xung === 'cô' ? 'em' : 'mình'} nhé...`,
+  ];
+  return messages[Math.floor(Math.random() * messages.length)];
+}
+
+// Đoán xưng hô ban đầu từ năm sinh (trước khi nhận metadata từ backend)
+function _guessInitialXung() {
+  if (!state.guestProfile) return 'cô'; // mặc định xưng cô
+  const age = new Date().getFullYear() - state.guestProfile.birth_year;
+  return age <= 26 ? 'cô' : 'em'; // trẻ → cô xưng "cô", lớn tuổi → cô xưng "em"
+}
 
 marked.setOptions({ breaks: true, gfm: true });
 function renderMd(text) { return DOMPurify.sanitize(marked.parse(text), { ADD_ATTR: ['target'] }); }
@@ -145,7 +161,7 @@ function addBotBubble() {
 
 function showTyping() {
   hideTyping();
-  const msg = TYPING_MESSAGES[Math.floor(Math.random() * TYPING_MESSAGES.length)];
+  const msg = getTypingMessage();
   const html = `<div class="typing" id="typing-indicator"><div class="msg-avatar">👩‍🏫</div><div class="typing-bubble"><span class="typing-text">${msg}</span><div class="dots"><span></span><span></span><span></span></div></div></div>`;
   chatArea().insertAdjacentHTML('beforeend', html); scrollBottom();
 }
@@ -363,6 +379,8 @@ async function sendMessage(text) {
       renderSuggestions(metadata.suggestions);
       if (metadata.requires_handoff) showHandoffForm();
       if (metadata.action === 'start_enrollment') startEnrollment();
+      // Lưu ngôi xưng để typing message lần sau dùng đúng
+      if (metadata.co_tham_xung) state.coThamXung = metadata.co_tham_xung;
     }
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
   } catch(e) {

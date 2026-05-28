@@ -1,275 +1,396 @@
-# 🎓 Cô giáo Thắm UFM Chatbot (v4.2.0)
+# 🎓 Cô giáo Thắm — UFM AI Chatbot Tuyển sinh Sau đại học
 
-Hệ thống Chatbot AI Tư vấn Tuyển sinh Thông minh chuyên biệt dành riêng cho **Viện Đào tạo Sau đại học — Trường Đại học Tài chính - Marketing (UFM)**. 
+<div align="center">
 
-Phiên bản **v4.2.0** hoàn thiện hóa kiến trúc **Đóng gói Docker toàn diện (Fully Dockerized & Self-contained)**, tích hợp sẵn kho tri thức 13 Quyết định chương trình đào tạo dạng Markdown, công cụ xử lý ngôn ngữ tiếng Việt chuyên sâu **Underthesea NLP**, và động cơ **AI Lead Scoring** định lượng hóa tiềm năng học viên tích hợp trực tiếp với Dashboard CRM thời gian thực.
+![Version](https://img.shields.io/badge/version-4.0.0-blue?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini_AI-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+
+**Hệ thống Chatbot AI Tư vấn Tuyển sinh Thông minh dành cho Viện Đào tạo Sau đại học — Trường Đại học Tài chính - Marketing (UFM)**
+
+[Demo trực tuyến](#) · [Tài liệu API](#-api-endpoints) · [Hướng dẫn cài đặt](#%EF%B8%8F-hướng-dẫn-cài-đặt--vận-hành)
+
+</div>
 
 ---
 
-## 🗺️ Kiến trúc Hệ thống Hybrid RAG
+## ✨ Tính năng nổi bật
 
-Hệ thống hoạt động theo mô hình **Hybrid RAG (Retrieval-Augmented Generation)** kết hợp dữ liệu tĩnh ngoại tuyến (Offline KB) và thu thập thông tin trực tuyến thời gian thực (Live Crawler) để đảm bảo câu trả lời luôn chính xác, không bịa đặt số liệu.
+| Tính năng | Mô tả |
+|:---|:---|
+| 🧠 **Hybrid RAG Engine** | Kết hợp BM25 + ChromaDB Vector Search + Lightweight Reranker |
+| 🤖 **Dual LLM (Gemini + FPT Cloud)** | Gemini AI làm chính với Google Search grounding, FPT Cloud Qwen3-32B làm fallback |
+| 🔍 **Google Search Grounding** | Tự động tìm kiếm Google cho câu hỏi ngoài lề (thời tiết, kiến thức tổng hợp...) |
+| 🎭 **Persona "Cô giáo Thắm"** | Giảng viên miền Nam ấm áp, xưng hô động theo vai vế người dùng |
+| ⚡ **3-Layer Caching** | HTML Cache (15 phút) + PDF OCR Cache (vĩnh viễn) + QA Semantic Cache |
+| 📊 **AI Lead Scoring + CRM** | Chấm điểm tự động 100 điểm, xác suất nhập học Sigmoid, Dashboard CRM |
+| 📋 **Đăng ký trực tuyến 3 bước** | Thu thập thông tin cá nhân → Học vấn → Upload giấy tờ |
+| 🌐 **Live Web Crawler** | Async crawler với DuckDuckGo search + Crawl4AI cho dữ liệu mới nhất |
+| 🏋️ **Lightweight Architecture** | Reranker siêu nhẹ (~4MB ONNX) thay thế model nặng ~560MB |
 
-### Luồng Xử lý Câu hỏi (Data Flow Diagram)
+---
+
+## 🗺️ Kiến trúc Hệ thống
+
+### Tổng quan Kiến trúc
 
 ```mermaid
 graph TD
-    User([Học viên / Người dùng]) --> Query[Gửi Câu hỏi]
-    Query --> QACache{QA Semantic Cache<br/>SequenceMatcher >= 90%?}
-    QACache -- Yes (HIT) --> InstantReply[Phản hồi tức thì trong 0s] --> End([Trả kết quả])
-    QACache -- No (MISS) --> UndertheseaNLP[Underthesea NLP<br/>Word Segmentation / Tokenize]
-    UndertheseaNLP --> HybridSearch[Truy xuất Hybrid Search<br/>1. BM25 Offline KB<br/>2. ChromaDB Semantic Vector]
-    HybridSearch --> RRF[Hợp nhất Reciprocal Rank Fusion - RRF]
-    RRF --> Rerank[CrossEncoder Reranker BGE-M3<br/>Chấm điểm & Sắp xếp lại]
-    Rerank --> MatchBoost{Metadata Boosting<br/>Khớp Bậc học / Ngành?}
-    MatchBoost -- Yes --> ApplyBoost[Nhân điểm số 1.5x - 3.0x] --> ScoreThreshold
-    MatchBoost -- No --> ScoreThreshold{Điểm RRF > 0.0?}
-    ScoreThreshold -- Yes (HIT) --> LLMInput[Nạp Ngữ cảnh KB vào Prompt]
-    ScoreThreshold -- No (MISS) --> LiveWeb[Live Web Crawler<br/>daotaosdh.ufm.edu.vn]
-    LiveWeb --> PDFOCR{Phát hiện file PDF?}
-    PDFOCR -- Yes --> PDFCache{PDF Cache<br/>đã OCR chưa?}
-    PDFCache -- Yes (HIT) --> LoadPDFCache[Đọc OCR Text từ Disk] --> LLMInput
-    PDFCache -- No (MISS) --> OCRVision[Tesseract / Qwen Vision OCR] --> SavePDFCache[Lưu PDF Cache vào Disk] --> LLMInput
-    PDFOCR -- No --> CrawlHTML[Tải & Làm sạch HTML] --> LLMInput
-    LLMInput --> FPTCloudLLM[FPT Cloud Qwen3-32B]
-    FPTCloudLLM --> FilterThink[Lọc thẻ 'think' & Sinh phản hồi]
-    FilterThink --> SaveCache[Lưu QA Cache vĩnh viễn]
-    FilterThink --> CRMScore[AI Lead Scoring & CRM Update]
+    User([👤 Học viên]) --> Query[Gửi Câu hỏi]
+    Query --> Pronoun[🎭 Nhận diện Xưng hô<br/>em/anh/chị/cô/thầy]
+    Pronoun --> QACache{QA Semantic Cache<br/>SequenceMatcher ≥ 90%?}
+    QACache -- "✅ HIT (0ms)" --> InstantReply[Phản hồi tức thì] --> End([Trả kết quả])
+    QACache -- "❌ MISS" --> NLP[🇻🇳 Underthesea NLP<br/>Word Segmentation]
+    NLP --> Router{Router Service<br/>Phân loại Intent}
+    Router -- "UFM-related" --> HybridSearch
+    Router -- "Off-topic" --> DDGSearch[🌐 DuckDuckGo Async Search<br/>httpx.AsyncClient]
+    DDGSearch --> LLMInput
+
+    HybridSearch[Hybrid Search<br/>BM25 + ChromaDB Vector] --> Rerank[⚡ Lightweight Reranker<br/>Vietnamese Keyword + FlashRank ONNX]
+    Rerank --> MetaBoost{Metadata Boost<br/>Khớp Bậc/Ngành?}
+    MetaBoost -- "Yes" --> ApplyBoost[Boost 1.2x - 1.5x] --> ScoreCheck
+    MetaBoost -- "No" --> ScoreCheck{Điểm > 0?}
+    ScoreCheck -- "✅ KB HIT" --> LLMInput[📝 Build Context + Prompt]
+    ScoreCheck -- "❌ KB MISS" --> LiveCrawl[🕷️ Crawl4AI<br/>daotaosdh.ufm.edu.vn + ufm.edu.vn]
+    LiveCrawl --> PDFCheck{Có PDF?}
+    PDFCheck -- "Yes" --> PDFOCR[📄 Tesseract OCR] --> LLMInput
+    PDFCheck -- "No" --> LLMInput
+
+    LLMInput --> GeminiLLM[🤖 Gemini AI<br/>Google Search Grounding]
+    GeminiLLM -- "Quota/Error" --> FPTFallback[🔄 FPT Cloud Qwen3-32B]
+    GeminiLLM --> Stream[📡 SSE Streaming Response]
+    FPTFallback --> Stream
+    Stream --> SaveCache[💾 Lưu QA Cache]
+    Stream --> CRMScore[📊 AI Lead Scoring]
     CRMScore --> End
 ```
 
-### 1. Phân Tích Tiếng Việt Với Underthesea NLP
-Hệ thống sử dụng thư viện NLP tiếng Việt chuyên sâu `underthesea` để thực hiện tách từ ghép (Word Segmentation).
-*   **Vấn đề:** Các thuật toán tìm kiếm truyền thống sẽ tách rời các từ đơn lẻ (ví dụ: *"sinh"* và *"viên"*), dẫn đến giảm độ chính xác khi tính tần suất từ.
-*   **Giải pháp:** NLP Engine tự động chuyển đổi văn bản sang dạng từ ghép nối bằng ký tự gạch dưới (ví dụ: `"sinh_viên"`, `"học_phí"`, `"tài_chính"`, `"ngân_hàng"`) trước khi tính điểm tương đồng, giúp việc hiểu ngữ nghĩa đạt độ chính xác 100%.
+### Stack Công nghệ
 
-### 2. Thuật Toán Hybrid RAG (BM25 + Semantic Vector) & BGE-M3 Reranker
-Hệ thống lưu trữ 13 Quyết định chương trình đào tạo offline dưới dạng Markdown và được lập chỉ mục (index) đồng bộ. Khi học viên đưa ra câu hỏi:
-1.  **Hybrid Search (Truy xuất kết hợp):** Câu hỏi được tìm kiếm đồng thời trên 2 động cơ:
-    *   Thuật toán xếp hạng từ khóa **BM25** (Tìm kiếm chính xác).
-    *   Bộ nhớ Vector **ChromaDB** kết hợp mô hình nhúng tiếng Việt `dangvantuan/vietnamese-embedding` (Tìm kiếm ngữ nghĩa).
-2.  **Reciprocal Rank Fusion (RRF):** Kết quả từ 2 động cơ được hợp nhất và tính điểm RRF để lấy ra top các đoạn văn bản tiềm năng nhất.
-3.  **CrossEncoder Reranker (BGE-M3):** Hệ thống nạp kết quả RRF vào mô hình AI Reranker siêu chuẩn xác `BAAI/bge-reranker-v2-m3`. Mô hình này sẽ chấm điểm lại (Re-score) độ liên quan giữa câu hỏi và đoạn văn bản để lọc ra các kết quả chính xác 100%.
-4.  **Metadata Boosting (Tối ưu hóa ngữ cảnh kế tiếp):** Hệ thống trích xuất thông tin về **Bậc đào tạo** (Thạc sĩ, Tiến sĩ) và **Ngành học** đang quan tâm từ lịch sử trò chuyện để điều chỉnh trọng số điểm số:
-    *   **Boost 3.0x:** Nếu chunk dữ liệu khớp *cả* bậc đào tạo và ngành học so với tên file nguồn.
-    *   **Boost 1.5x:** Nếu chunk dữ liệu khớp *một trong hai* yếu tố (chỉ khớp bậc đào tạo hoặc ngành học).
-5.  **Ngưỡng tin cậy (Confidence Threshold):** Chỉ các chunk có điểm số sau boost đạt chuẩn mới được nạp làm ngữ cảnh cho LLM. Nếu không có chunk nào đạt yêu cầu, hệ thống tự động kích hoạt **Live Web Crawler** để thu thập thông tin mới nhất từ website chính thức của trường.
+| Layer | Công nghệ | Chi tiết |
+|:---|:---|:---|
+| **LLM chính** | Google Gemini AI | `gemini-flash-latest` + Google Search grounding |
+| **LLM fallback** | FPT Cloud | `Qwen3-32B` (OpenAI-compatible API) |
+| **Embedding** | `dangvantuan/vietnamese-embedding` | SentenceTransformer, tối ưu cho tiếng Việt |
+| **Reranker** | FlashRank ONNX + Vietnamese Keyword Scorer | `ms-marco-TinyBERT-L-2-v2` (~4MB), hybrid scoring |
+| **Vector DB** | ChromaDB | Embedded mode, persistent storage |
+| **NLP** | Underthesea | Word segmentation tiếng Việt |
+| **Web Framework** | FastAPI | Async, SSE streaming, auto OpenAPI docs |
+| **Web Crawler** | Crawl4AI + httpx | Async DuckDuckGo search cho câu hỏi off-topic |
+| **OCR** | Tesseract + OpenCV | Nhận dạng chữ tiếng Việt từ PDF scan |
+| **Frontend** | Vanilla HTML/CSS/JS | Responsive, onboarding 3 bước, CRM dashboard |
 
 ---
 
-## 📈 AI Lead Scoring & Động cơ Phân tích Tiềm năng
+## 📚 Kho Tri thức (Knowledge Base)
 
-Hệ thống tích hợp một mô hình **AI Lead Scoring** chấm điểm tự động hành vi và hồ sơ học viên trên thang điểm 100 để lọc ra các ứng viên có tiềm năng nhập học cao nhất, hỗ trợ đắc lực cho bộ phận tuyển sinh.
+Hệ thống được đào tạo trên **272 tài liệu Markdown** bao gồm:
 
-### 1. Cơ cấu Phân bổ Điểm (Max 100 điểm)
+| Nguồn | Số lượng | Nội dung |
+|:---|:---:|:---|
+| 📜 Quyết định CTĐT | 13 | Chương trình đào tạo Thạc sĩ & Tiến sĩ (9 ngành ThS + 3 ngành TS) |
+| 🌐 Website Sau ĐH | ~120 | Crawl từ `daotaosdh.ufm.edu.vn` (chi tiết ngành, điều kiện, biểu mẫu...) |
+| 🏫 Website Chính UFM | ~139 | Crawl từ `ufm.edu.vn` (tin tức, hợp tác quốc tế, hội thảo, lịch sử trường...) |
 
-| Nhóm Tiêu Chí | Điểm Tối Đa | Chi Tiết Tiêu Chí Chấm Điểm |
-| :--- | :---: | :--- |
-| **Hồ sơ năng lực (Profile)** | **25 điểm** | - Đã tốt nghiệp Đại học hoặc Sau Đại học (+10đ)<br/>- Ngành tốt nghiệp liên quan đến khối kinh tế/luật/UFM (+8đ)<br/>- Độ tuổi vàng đi học từ 22 đến 45 (+4đ)<br/>- Có đề cập kinh nghiệm làm việc (+3đ) |
-| **Mức độ tương tác (Engagement)**| **40 điểm** | - Hỏi về Học phí (+15đ)<br/>- Hỏi về Điều kiện đầu vào (+10đ)<br/>- Hỏi về Lịch học / Hình thức đào tạo (+8đ)<br/>- Hỏi về Hồ sơ nhập học (+8đ)<br/>- Hỏi về Deadline nộp hồ sơ (+7đ)<br/>- Yêu cầu kết nối chuyên viên tuyển sinh (+10đ)<br/>- Hỏi từ 2 ngành trở lên (+5đ)<br/>- Đưa ra $\ge 5$ câu hỏi cụ thể (+6đ)<br/>- Thời gian trò chuyện $\ge 10$ phút (+4đ)<br/>- Gửi $\ge 8$ tin nhắn (+3đ) |
-| **Hành động cụ thể (Action)** | **35 điểm** | - Đã hoàn tất và bấm nộp hồ sơ (+35đ)<br/>- Tiến độ hoàn thành hồ sơ nháp $\ge 80\%$ (+28đ)<br/>- Tiến độ hoàn thành hồ sơ nháp $50\% - 79\%$ (+20đ)<br/>- Bắt đầu tạo hồ sơ đăng ký trực tuyến (+12đ)<br/>- Mức độ khẩn cấp cao: đề cập nhập học đợt này, kỳ này (+10đ)<br/>- Quay lại trò chuyện nhiều phiên (Session $\ge 2$) (+8đ) |
+### Ngành đào tạo được hỗ trợ
 
-### 2. Công thức Tính Xác suất Nhập học (Enrollment Probability)
-Hệ thống sử dụng **hàm kích hoạt Sigmoid (Logistic)** để chuyển đổi điểm số Lead sang tỷ lệ xác suất thực tế, phản ánh chính xác xu hướng tâm lý chuyển đổi:
+**Thạc sĩ (9 ngành):**
+Quản trị Kinh doanh · Tài chính - Ngân hàng · Kế toán · Marketing · Quản lý Kinh tế · Kinh doanh Quốc tế · Kinh tế học · Toán Kinh tế · Luật Kinh tế
+
+**Tiến sĩ (3 ngành):**
+Quản trị Kinh doanh · Tài chính - Ngân hàng · Quản lý Kinh tế
+
+---
+
+## ⚡ Reranker Siêu nhẹ (v4.0 — Hybrid A+B)
+
+Phiên bản v4.0 thay thế hoàn toàn model reranker nặng `BAAI/bge-reranker-v2-m3` (~560MB, ~1.2GB RAM) bằng kiến trúc hybrid siêu nhẹ:
+
+| Metric | BGE-Reranker-v2-M3 (cũ) | Hybrid A+B (mới) |
+|:---|:---:|:---:|
+| **Kích thước model** | ~560MB | **~4MB** |
+| **RAM sử dụng** | ~1.2GB | **~10MB** |
+| **Tốc độ rerank 20 docs** | 200-500ms | **< 5ms** |
+| **Yêu cầu GPU** | Có (MPS/CUDA) | **Không cần** |
+
+### Cách hoạt động
+
+```
+Layer A — Vietnamese Keyword Scorer (luôn chạy, < 1ms)
+├── Underthesea word segmentation
+├── Query term coverage (40%)
+├── Exact phrase + N-gram matching (30%)
+├── Position bonus — tiêu đề/header (15%)
+└── Keyword density (15%)
+
+Layer B — FlashRank ONNX (nếu có, ~3ms)
+├── ms-marco-TinyBERT-L-2-v2 (~4MB ONNX)
+└── ONNX Runtime optimized cho CPU
+
+Final Score = 0.4 × Layer_A + 0.6 × Layer_B
+```
+
+---
+
+## 🎭 Persona "Cô giáo Thắm" & Xưng hô Động
+
+Chatbot đóng vai **Cô giáo Thắm** — giảng viên miền Nam ấm áp, tận tâm với hệ thống xưng hô tự động:
+
+| Người dùng xưng | Cô Thắm xưng | Cô Thắm gọi user | Câu chờ hiển thị |
+|:---|:---:|:---:|:---|
+| "**em** muốn hỏi..." | **cô** | **em** | "Đợi **cô Thắm** xíu nha..." |
+| "**anh** cần biết..." | **em** | **anh** | "Đợi **em Thắm** xíu nha..." |
+| "**chị** muốn hỏi..." | **em** | **chị** | "Đợi **em Thắm** xíu nha..." |
+| "cho **cô** hỏi..." | **em** | **cô** | "Đợi **em Thắm** xíu nha..." |
+| Không rõ | Đoán từ tuổi | **bạn** | Tự động theo năm sinh |
+
+**Đặc điểm:**
+- 🗣️ Phong cách miền Nam tự nhiên: "Dạ em ơi...", "Ồ hay quá!", "Cô nghĩ vậy nè..."
+- 😊 Phản ứng cảm xúc: vui khi user đủ điều kiện, an ủi khi lo lắng, thành thật khi không tìm thấy
+- 🔄 Nhất quán xuyên suốt cuộc trò chuyện
+- 🌐 Hỏi tào lao cũng trả lời được (Google Search grounding)
+
+---
+
+## 📈 AI Lead Scoring & CRM Dashboard
+
+### Cơ cấu Phân bổ Điểm (Max 100 điểm)
+
+| Nhóm Tiêu Chí | Điểm Tối Đa | Chi Tiết |
+|:---|:---:|:---|
+| **Hồ sơ năng lực** | **25đ** | Đã tốt nghiệp ĐH (+10đ) · Ngành liên quan (+8đ) · Tuổi vàng 22-45 (+4đ) · Có kinh nghiệm (+3đ) |
+| **Mức độ tương tác** | **40đ** | Hỏi học phí (+15đ) · Điều kiện ĐV (+10đ) · Lịch học (+8đ) · Hồ sơ (+8đ) · Deadline (+7đ) · ≥5 câu hỏi (+6đ) |
+| **Hành động cụ thể** | **35đ** | Nộp hồ sơ (+35đ) · Hoàn thành ≥80% (+28đ) · Bắt đầu ĐK (+12đ) · Khẩn cấp (+10đ) · Quay lại (+8đ) |
+
+### Xác suất Nhập học (Sigmoid)
 
 $$P(\text{enroll}) = \frac{1}{1 + e^{-0.1 \times (\text{Score} - 55)}}$$
 
-*Trong đó:*
-*   $\text{Score}$: Tổng số điểm Lead Scoring tích lũy (0 - 100).
-*   $55$: Điểm trung vị. Điểm số vượt qua mốc này sẽ làm xác suất chuyển đổi tăng vọt theo đường cong Sigmoid.
-*   $0.1$: Hệ số dốc của đường cong chuyển đổi.
-*   Xác suất đầu ra được giới hạn tự nhiên trong khoảng từ **2% đến 97%**.
+### Phân loại Lead
 
-### 3. Xếp loại Phân hạng Học viên (Lead Grading)
-
-| Điểm số (Score) | Phân lớp (Grade) | Trạng thái Lead | Độ ưu tiên CRM | Nhãn CRM hiển thị |
-| :--- | :---: | :--- | :--- | :--- |
-| $\ge 75$ | **A** | `hot_lead` | Cao (High) | 🔥 Tiềm năng cao (Hot) |
-| $55 - 74$ | **B** | `interested` | Cao (High) | ⭐ Quan tâm (Interested) |
-| $35 - 54$ | **C** | `follow_up` | Trung bình (Normal) | 💡 Cần theo dõi (Follow-up) |
-| $< 35$ | **D** | `new` | Thấp (Low) | ❄️ Mới tiếp cận (Cold) |
+| Điểm | Grade | Trạng thái | Nhãn CRM |
+|:---|:---:|:---|:---|
+| ≥ 75 | **A** | `hot_lead` | 🔥 Tiềm năng cao |
+| 55–74 | **B** | `interested` | ⭐ Quan tâm |
+| 35–54 | **C** | `follow_up` | 💡 Cần theo dõi |
+| < 35 | **D** | `new` | ❄️ Mới tiếp cận |
 
 ---
 
-## ⚡ Cơ chế Caching 3 Tầng Siêu tốc
+## ⚡ Caching 3 Tầng
 
-Hệ thống triển khai 3 tầng lưu trữ đệm tối ưu để đảm bảo tốc độ phản hồi tức thì và tiết kiệm chi phí gọi API ngoại vi:
-
-1.  **HTML Cache (In-Memory TTL):** Sử dụng `cachetools.TTLCache` lưu cấu trúc trang web được crawl online trực tiếp trên RAM trong vòng **15 phút**.
-2.  **PDF Cache (Persistent Disk Cache):** Toàn bộ nội dung OCR và AI Vision bóc tách từ các file tài liệu PDF tuyển sinh dung lượng lớn được mã hóa MD5 theo URL và lưu trữ vĩnh viễn thành các file `.txt` trong thư mục `./app/database/pdfs/`. Khi khởi động lại container, hệ thống không cần chạy lại OCR cho các file cũ.
-3.  **QA Semantic Cache (Memory & Disk Sync):**
-    *   Sử dụng thuật toán so khớp chuỗi **SequenceMatcher** trên tập câu hỏi đã làm sạch qua bộ tách từ `underthesea`.
-    *   **Ngưỡng khớp:** $\ge 90\%$.
-    *   Nếu học viên đưa ra câu hỏi có ý nghĩa tương đương câu hỏi đã có trong cache, chatbot sẽ **phản hồi ngay lập tức trong 0 giây** mà không cần gọi mô hình ngôn ngữ lớn LLM. Tập Cache được đồng bộ liên tục vào file `./app/database/qa_cache.json` (giới hạn 1000 câu mới nhất).
+| Tầng | Loại | TTL | Chi tiết |
+|:---|:---|:---:|:---|
+| **1. HTML Cache** | In-Memory (TTLCache) | 15 phút | Cache trang web crawl trực tuyến |
+| **2. PDF Cache** | Persistent Disk | Vĩnh viễn | OCR text lưu `./app/database/pdfs/`, MD5 hash URL |
+| **3. QA Cache** | Memory + Disk Sync | Vĩnh viễn | SequenceMatcher ≥90%, giới hạn 1000 QA, scan 100 mới nhất |
 
 ---
 
-## 🎭 Persona "Cô giáo Thắm" & Nhận diện Xưng hô Động
-
-Động cơ LLM Qwen3-32B được thiết kế hệ thống Prompt định hình nhân cách vô cùng chi tiết, đóng vai một giảng viên/trợ lý miền Nam nhiệt tình, tận tâm:
-
-*   **Xưng hô động theo người dùng:**
-    *   *Người dùng xưng "em":* Chatbot bắt buộc xưng **"cô"** và gọi **"em"** (Ví dụ: *"Dạ em ơi, với nền tảng như vậy thì em hoàn toàn phù hợp..."*).
-    *   *Người dùng xưng "anh/chị":* Chatbot xưng **"em"** và gọi **"anh"/"chị"**.
-    *   *Người dùng xưng "tôi" hoặc không rõ:* Chatbot xưng **"em"** và gọi **"bạn"** hoặc **"mình"**.
-*   **Phản ứng cảm xúc tự nhiên:** Có các kịch bản phản hồi riêng khi người dùng có tin tốt (nhiều năm kinh nghiệm), lo lắng về lịch học, hay khi hệ thống không tìm thấy thông tin trên website (thừa nhận trung thực và điều hướng liên hệ hotline).
-*   **Quy trình Đăng ký 3 Bước:** Khi học viên có ý định làm hồ sơ nhập học, chatbot tự động kích hoạt luồng thu thập thông tin bảo mật, dẫn dắt học viên đi qua 3 bước chuẩn chỉnh:
-    *   *Bước 1:* Khai báo thông tin cá nhân.
-    *   *Bước 2:* Khai báo thông tin học vấn/bằng cấp.
-    *   *Bước 3:* Hướng dẫn tải lên các đầu mục giấy tờ bắt buộc (chuyển đổi trạng thái sang CRM).
-
----
-
-## 🏗️ Cấu trúc Thư mục Dự án
+## 🏗️ Cấu trúc Dự án
 
 ```text
 ufm-chatbot-cotham/
 ├── app/
-│   ├── config.py                 # Đọc và xác thực cấu trúc cấu hình (.env) qua Pydantic Settings
-│   ├── main.py                   # FastAPI Application Entrypoint & Đăng ký Middleware/Routes
-│   ├── models.py                 # Khai báo Schema Pydantic cho Dữ liệu Chat, Guest, CRM
-│   ├── database/                 # Thư mục lưu trữ cơ sở dữ liệu nội bộ (được đồng bộ ra máy chủ)
-│   │   ├── qa_cache.json         # Tập lưu trữ QA Semantic Cache
-│   │   └── pdfs/                 # Chứa dữ liệu text bóc tách từ PDF OCR
-│   ├── knowledge_base/           # Chứa 13 Quyết định chương trình đào tạo (.md) gốc
-│   ├── routes/                   # Định nghĩa các cổng API Endpoints
-│   │   ├── chat.py               # API chat stream, gợi ý câu hỏi tiếp theo
-│   │   ├── crm.py                # API quản trị Lead, cấu hình CRM Dashboard
-│   │   ├── enrollment.py         # API xử lý tiến trình đăng ký nhập học trực tuyến
-│   │   ├── guest.py              # API định danh khách, khởi tạo session
-│   │   ├── handoff.py            # API handoff chuyển giao sang tư vấn viên thực tế
-│   │   └── health.py             # API kiểm tra trạng thái dịch vụ (Liveness/Readiness)
-│   └── services/                 # Thư mục chứa Logic nghiệp vụ cốt lõi
-│       ├── cache_service.py      # Quản lý 3 tầng bộ nhớ đệm (HTML, PDF, QA Cache)
-│       ├── kb_service.py         # Công cụ RAG BM25 ngoại tuyến kết hợp Underthesea NLP
-│       ├── scoring_engine.py     # Động cơ chấm điểm tự động AI Lead Scoring (Logistic)
-│       ├── crm_service.py        # Lưu trữ trạng thái Lead và xuất báo cáo CRM dạng JSON
-│       ├── llm_service.py        # Gọi LLM Qwen3-32B FPT Cloud, lọc thẻ <think>
-│       ├── crawler_service.py    # Thu thập dữ liệu trực tuyến tự động từ daotaosdh.ufm.edu.vn
-│       ├── pdf_service.py        # Xử lý phân tích PDF OCR qua Tesseract và OpenCV
-│       ├── memory_service.py     # Quản lý ngữ cảnh và phiên trò chuyện ngắn hạn/dài hạn
-│       └── context_service.py    # Đồng bộ tổng hợp ngữ cảnh xưng hô, tên gọi và lịch sử
-├── static/                       # Giao diện tĩnh phía Client
-│   ├── index.html                # Giao diện phòng chat tương tác thời gian thực
-│   ├── crm/                      # Mã nguồn trang quản trị Dashboard CRM Sau đại học
-│   └── ...                       # CSS, JS và tài nguyên hình ảnh thương hiệu UFM
-├── Dockerfile                    # Thiết lập Docker Image tự chứa (Poppler & Tesseract OCR)
-├── docker-compose.yml            # Khởi tạo container và gắn phân vùng ổ đĩa vĩnh viễn (Volumes)
-├── requirements.txt              # Danh sách thư viện Python phụ thuộc
-└── README.md                     # Tài liệu kỹ thuật chi tiết hệ thống
+│   ├── config.py                 # Cấu hình tập trung (.env) — Pydantic Settings
+│   ├── main.py                   # FastAPI entrypoint, lifespan, CORS, static mount
+│   ├── models.py                 # Pydantic schemas (Chat, Guest, CRM, Enrollment)
+│   ├── database/                 # Dữ liệu runtime (QA cache, PDF OCR text)
+│   │   ├── qa_cache.json         # QA Semantic Cache (1000 QA mới nhất)
+│   │   └── pdfs/                 # PDF OCR text cache (persistent)
+│   ├── knowledge_base/           # 272 tài liệu Markdown (QĐ + website crawl)
+│   ├── routes/
+│   │   ├── chat.py               # POST /api/chat — RAG pipeline + SSE streaming
+│   │   ├── crm.py                # CRM dashboard API (login, leads, analytics)
+│   │   ├── enrollment.py         # Đăng ký nhập học 3 bước + upload giấy tờ
+│   │   ├── guest.py              # Onboarding, session init, profile
+│   │   ├── handoff.py            # Chuyển giao sang tư vấn viên thực tế
+│   │   └── health.py             # GET /health — Liveness check
+│   └── services/
+│       ├── llm_service.py        # Dual LLM: Gemini AI (chính) + FPT Cloud (fallback)
+│       ├── kb_service.py         # Hybrid RAG: BM25 + Vector + Reranker + Metadata Boost
+│       ├── reranker_service.py   # ⚡ Lightweight Hybrid Reranker (Keyword + FlashRank ONNX)
+│       ├── vector_service.py     # ChromaDB + vietnamese-embedding SentenceTransformer
+│       ├── crawler_service.py    # Async web crawler (Crawl4AI + DuckDuckGo httpx)
+│       ├── cache_service.py      # 3-layer caching (HTML, PDF, QA Semantic)
+│       ├── memory_service.py     # Session memory, pronoun detection, conversation history
+│       ├── context_service.py    # Context builder + confidence estimation
+│       ├── pdf_service.py        # PDF OCR (Tesseract + OpenCV)
+│       ├── scoring_engine.py     # AI Lead Scoring engine (Sigmoid probability)
+│       ├── crm_service.py        # CRM data management + lead tracking
+│       ├── suggestion_service.py # Gợi ý câu hỏi contextual
+│       ├── enrollment_service.py # Enrollment workflow management
+│       ├── handoff_service.py    # Handoff to human advisor
+│       └── router_service.py     # Intent classification + routing
+├── static/
+│   ├── index.html                # Giao diện chat responsive
+│   ├── app.js                    # Frontend logic (onboarding, chat, enrollment)
+│   ├── style.css                 # UI styling
+│   └── crm/                     # CRM Dashboard (login, leads table, analytics)
+├── data/models/                  # FlashRank ONNX model cache (~4MB)
+├── Dockerfile                    # Docker image (Poppler + Tesseract OCR + Python)
+├── docker-compose.yml            # Container orchestration + volumes
+├── requirements.txt              # Python dependencies
+├── .env.example                  # Template biến môi trường
+└── README.md
 ```
 
 ---
 
 ## 🛠️ Hướng dẫn Cài đặt & Vận hành
 
-> **⚠️ LƯU Ý QUAN TRỌNG VỀ AI MODELS:**
-> Nhằm tối ưu hóa dung lượng dự án trên GitHub, các mô hình Trí tuệ Nhân tạo phục vụ tìm kiếm ngữ nghĩa (như mô hình nhúng `dangvantuan/vietnamese-embedding` và mô hình Reranker `BAAI/bge-reranker-v2-m3` dung lượng hơn 2GB) **KHÔNG ĐƯỢC ĐẨY LÊN GITHUB**.
->
-> 🚀 **Cơ Chế Tải Tự Động & Tăng Tốc Tải 10x (hf_transfer):**
-> Bạn không cần tải thủ công. Lần đầu chạy app, hệ thống tự động tải từ Hugging Face Hub. Để tăng tốc độ tải lên gấp 10 lần (đặc biệt khi tải file mô hình Reranker 2GB từ máy chủ quốc tế), bạn chỉ cần bật biến môi trường trước khi chạy ứng dụng:
-> ```bash
-> export HF_HUB_ENABLE_HF_TRANSFER=1
-> ```
-> *(Thư viện `hf_transfer` lập trình bằng Rust sẽ tự động kích hoạt tải đa luồng tốc độ cao).*
->
-> 💻 **Tự Động Tăng Tốc Phần Cứng (Apple Silicon MPS / Nvidia CUDA):**
-> Lõi Reranker mới được viết bằng Transformers gốc, tự động phát hiện và kích hoạt phần cứng đồ họa:
-> *   **macOS (M1/M2/M3...):** Kích hoạt bộ gia tốc **Apple Silicon GPU (MPS)**.
-> *   **Windows/Linux (Nvidia GPU):** Kích hoạt bộ gia tốc **CUDA**.
-> *   **CPU:** Tự động fallback chạy bằng CPU nếu máy không có GPU rời/tích hợp.
-
 ### Yêu cầu Hệ thống
-*   Hệ điều hành hỗ trợ: Linux (Ubuntu/CentOS), macOS, Windows.
-*   Đã cài đặt **Docker** và **Docker Compose** (Khuyên dùng) hoặc **Python 3.10+**.
 
+| Yêu cầu | Tối thiểu | Khuyến nghị |
+|:---|:---|:---|
+| **OS** | Linux / macOS / Windows | Ubuntu 22.04+ hoặc macOS |
+| **Python** | 3.10+ | 3.11+ |
+| **RAM** | 2GB | 4GB+ |
+| **Disk** | 2GB | 5GB+ |
+| **GPU** | Không bắt buộc | Có GPU sẽ nhanh hơn cho embedding |
 
-### Cách 1: Triển khai nhanh bằng Docker & Docker Compose (Khuyên dùng)
+> **📝 Lưu ý:** Phiên bản v4.0 đã tối ưu hóa giảm ~1.2GB RAM nhờ thay thế reranker nặng bằng FlashRank ONNX siêu nhẹ.
 
-Đây là phương thức triển khai an toàn nhất vì Dockerfile đã được cấu hình tự động tải và cài đặt các công cụ hệ thống phức tạp như `poppler-utils` (chuyển PDF thành ảnh) và `tesseract-ocr` kèm gói ngôn ngữ tiếng Việt (`tessdata`).
+### Cách 1: Docker (Khuyên dùng)
 
-1.  **Thiết lập file cấu hình môi trường `.env` ở thư mục gốc:**
-    ```env
-    FPT_CLOUD_API_KEY="Mã-API-FPT-Cloud-Của-Bạn"
-    CRM_DASHBOARD_PASSWORD="ufm_crm_2026"
-    DEBUG_MODE=False
-    PORT=8001
-    ```
-2.  **Khởi chạy container ở chế độ chạy ngầm:**
-    ```bash
-    docker compose up --build -d
-    ```
-    *Lệnh này sẽ tự động đóng gói ứng dụng, tích hợp sẵn 13 file tri thức `.md` vào trong image, mở cổng kết nối `8001` và mount thư mục `./app/database` ra ổ cứng máy vật lý để lưu trữ dữ liệu vĩnh viễn.*
-3.  **Quản lý container:**
-    *   Xem lịch sử log hoạt động thời gian thực: `docker compose logs -f`
-    *   Dừng và xóa container: `docker compose down`
+```bash
+# 1. Clone repo
+git clone https://github.com/phapsuto/ufm-chatbot-cotham.git
+cd ufm-chatbot-cotham
+
+# 2. Tạo file .env
+cp .env.example .env
+# Sửa file .env, thêm API keys:
+#   GEMINI_API_KEY=your_gemini_api_key
+#   FPT_CLOUD_API_KEY=your_fpt_cloud_api_key
+
+# 3. Khởi chạy
+docker compose up --build -d
+
+# 4. Truy cập
+# Chatbot: http://localhost:8001
+# CRM:     http://localhost:8001/crm
+```
+
+### Cách 2: Local Development
+
+```bash
+# 1. Cài đặt hệ thống (macOS)
+brew install poppler tesseract tesseract-lang
+
+# 1. Cài đặt hệ thống (Ubuntu/Debian)
+sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-vie
+
+# 2. Cài đặt Python dependencies
+pip3 install -r requirements.txt
+
+# 3. Tạo .env
+cp .env.example .env
+# Thêm GEMINI_API_KEY và/hoặc FPT_CLOUD_API_KEY
+
+# 4. Khởi chạy
+uvicorn app.main:app --port 8000 --reload
+
+# 5. Truy cập: http://localhost:8000
+```
+
+### Tải Model AI lần đầu
+
+Lần chạy đầu tiên, hệ thống sẽ tự động tải:
+
+| Model | Kích thước | Mục đích |
+|:---|:---:|:---|
+| `dangvantuan/vietnamese-embedding` | ~400MB | Vector embedding tiếng Việt |
+| `ms-marco-TinyBERT-L-2-v2` | ~4MB | FlashRank ONNX reranker |
+
+Để tăng tốc tải 10x:
+```bash
+export HF_HUB_ENABLE_HF_TRANSFER=1
+```
+
+---
+
+## ⚙️ Biến Môi trường (.env)
+
+| Biến | Mặc định | Mô tả |
+|:---|:---:|:---|
+| `GEMINI_API_KEY` | *(trống)* | **(Khuyên dùng)** API Key Google Gemini AI |
+| `GEMINI_DEFAULT_MODEL` | `gemini-flash-latest` | Model Gemini mặc định |
+| `FPT_CLOUD_API_KEY` | *(trống)* | API Key FPT Cloud (fallback LLM) |
+| `FPT_CLOUD_BASE_URL` | `https://mkp-api.fptcloud.com/v1` | Endpoint FPT Cloud |
+| `FPT_CLOUD_DEFAULT_MODEL` | `Qwen3-32B` | Model FPT Cloud mặc định |
+| `LLM_TEMPERATURE` | `0.7` | Độ sáng tạo (0.0–1.0) |
+| `LLM_MAX_TOKENS` | `2048` | Giới hạn token phản hồi |
+| `ALLOWED_DOMAIN` | `daotaosdh.ufm.edu.vn` | Domain được phép crawl |
+| `CRM_DASHBOARD_PASSWORD` | `ufm_crm_2026` | Mật khẩu CRM Dashboard |
+| `PORT` | `8000` | Port ứng dụng |
+| `DEBUG_MODE` | `False` | Bật log debug chi tiết |
+| `TESSERACT_LANG` | `vie+eng` | Ngôn ngữ OCR |
 
 ---
 
-### Cách 2: Triển khai Thủ công trên Máy cục bộ (Local Development)
+## 🔌 API Endpoints
 
-1.  **Cài đặt thư viện hệ thống bắt buộc:**
-    *   **macOS (Homebrew):**
-        ```bash
-        brew install poppler tesseract tesseract-lang
-        ```
-    *   **Ubuntu/Debian:**
-        ```bash
-        sudo apt-get update
-        sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-vie
-        ```
-2.  **Cài đặt các gói thư viện Python:**
-    ```bash
-    pip3 install -r requirements.txt
-    ```
-3.  **Tạo file cấu hình `.env`:**
-    Sao chép từ file ví dụ `.env.example` và bổ sung khóa `FPT_CLOUD_API_KEY`.
-4.  **Khởi chạy máy chủ phát triển:**
-    ```bash
-    uvicorn app.main:app --port 8001 --reload
-    ```
-5.  Truy cập ứng dụng tại: `http://localhost:8001`
+### Chat & RAG
+| Method | Endpoint | Mô tả |
+|:---:|:---|:---|
+| `POST` | `/api/chat` | Chat streaming (SSE) — RAG pipeline đầy đủ |
 
----
+### Guest & Onboarding
+| Method | Endpoint | Mô tả |
+|:---:|:---|:---|
+| `POST` | `/api/guest/register` | Đăng ký khách, tạo session |
 
-## ⚙️ Cấu hình Biến Môi trường (.env)
+### Enrollment (Đăng ký nhập học)
+| Method | Endpoint | Mô tả |
+|:---:|:---|:---|
+| `POST` | `/api/enrollment/start` | Bắt đầu hồ sơ đăng ký |
+| `POST` | `/api/enrollment/info` | Cập nhật thông tin từng bước |
+| `POST` | `/api/enrollment/upload` | Upload giấy tờ (PDF/JPG/PNG) |
+| `POST` | `/api/enrollment/submit` | Nộp hồ sơ hoàn tất |
 
-Hệ thống hỗ trợ các tham số cấu hình linh hoạt trong file `.env`:
+### CRM & Quản trị
+| Method | Endpoint | Mô tả |
+|:---:|:---|:---|
+| `POST` | `/api/crm/login` | Đăng nhập CRM Dashboard |
+| `GET` | `/api/crm/leads` | Danh sách leads + điểm số + xác suất |
+| `GET` | `/api/crm/lead/{session_id}` | Chi tiết 1 lead (lịch sử, phân tích) |
+| `POST` | `/api/handoff` | Chuyển giao sang tư vấn viên |
 
-| Tên Biến | Giá Trị Mặc Định | Mô Tả |
-| :--- | :---: | :--- |
-| `FPT_CLOUD_API_KEY` | *(Trống)* | **(Bắt buộc)** Khóa API FPT Cloud để gọi mô hình Qwen. |
-| `FPT_CLOUD_BASE_URL` | `https://mkp-api.fptcloud.com/v1` | URL Endpoint API của FPT Cloud. |
-| `FPT_CLOUD_DEFAULT_MODEL`| `Qwen3-32B` | Tên mô hình ngôn ngữ lớn mặc định phục vụ RAG. |
-| `LLM_TEMPERATURE` | `0.7` | Độ sáng tạo của câu trả lời (0.0: chính xác, 1.0: sáng tạo). |
-| `LLM_MAX_TOKENS` | `2048` | Giới hạn số lượng token phản hồi tối đa của LLM. |
-| `ALLOWED_DOMAIN` | `daotaosdh.ufm.edu.vn` | Tên miền trang web được phép crawler dữ liệu. |
-| `CRM_DASHBOARD_PASSWORD`| `ufm_crm_2026` | Mật khẩu đăng nhập vào trang quản trị CRM `/crm`. |
-| `PORT` | `8000` | Cổng mạng lắng nghe mặc định của ứng dụng. |
-| `DEBUG_MODE` | `False` | Bật/Tắt chế độ in log debug chi tiết của FastAPI. |
-| `TESSERACT_LANG` | `vie+eng` | Ngôn ngữ nhận diện chữ viết của bộ máy Tesseract OCR. |
+### System
+| Method | Endpoint | Mô tả |
+|:---:|:---|:---|
+| `GET` | `/health` | Health check (`{"status": "ok", "version": "4.0.0"}`) |
 
 ---
 
-## 🔌 Danh sách API Endpoints Chính
+## 📄 Changelog
 
-Ứng dụng cung cấp các đầu cổng API tiêu chuẩn RESTful kết hợp Server-Sent Events (SSE) để truyền dữ liệu thời gian thực:
+### v4.0.0 (2025-05-28)
+- 🔄 **Dual LLM:** Gemini AI (chính) + FPT Cloud Qwen3-32B (fallback)
+- 🌐 **Google Search Grounding:** Tự động search Google cho câu hỏi off-topic
+- ⚡ **Lightweight Reranker:** FlashRank ONNX (~4MB) thay thế BGE-M3 (~560MB), giảm 1.2GB RAM
+- 🎭 **Dynamic Typing Messages:** "Đợi cô/em Thắm xíu nha" theo ngôi xưng
+- 🔧 **Performance Audit:** Fix 14 issues (async DDG search, KB init, cache optimization)
+- 🌐 **Async Web Search:** DuckDuckGo search chuyển sang httpx async (không còn block event loop)
+- 📚 **272 tài liệu KB:** Mở rộng từ website chính UFM (`ufm.edu.vn`)
 
-### 1. Phân hệ Chat & RAG
-*   **`POST /chat/stream`**: Nhận câu hỏi từ người dùng, thực hiện RAG và trả về luồng dữ liệu stream dạng Server-Sent Events (SSE).
-*   **`POST /chat/suggestions`**: Đề xuất 3 câu hỏi tiếp theo liên quan chặt chẽ đến ngữ cảnh hội thoại hiện tại.
-*   **`POST /admin/clear-cache`**: Dọn sạch bộ nhớ cache HTML và cache QA (yêu cầu tham số bảo mật `secret`).
-
-### 2. Phân hệ Định danh & Đăng ký trực tuyến
-*   **`POST /api/guest/init`**: Khởi tạo session mới cho khách truy cập, định danh bằng ID ngẫu nhiên.
-*   **`POST /api/enrollment/start`**: Đánh dấu điểm khởi đầu quá trình tạo hồ sơ nhập học của học viên.
-*   **`POST /api/enrollment/update`**: Cập nhật từng bước dữ liệu hồ sơ (thông tin cá nhân, học vấn, giấy tờ đính kèm).
-
-### 3. Phân hệ CRM & Quản trị
-*   **`POST /api/crm/login`**: Đăng nhập trang quản trị CRM thông qua mật khẩu cấu hình.
-*   **`GET /api/crm/leads`**: Lấy danh sách toàn bộ các Leads (học viên tiềm năng) kèm điểm số chi tiết, xếp hạng và xác suất nhập học.
-*   **`GET /api/crm/lead/{session_id}`**: Xem chi tiết lịch sử chat, vết tương tác và phân tích cơ cấu điểm số của một Lead cụ thể.
-*   **`POST /api/handoff/request`**: Yêu cầu chuyển giao cuộc trò chuyện hiện tại từ AI sang tư vấn viên thực tế.
+### v3.x
+- Hybrid RAG (BM25 + ChromaDB Vector)
+- AI Lead Scoring + CRM Dashboard
+- Onboarding 3 bước + Enrollment
+- QA Semantic Cache
 
 ---
-*Dự án được nghiên cứu và phát triển chuyên biệt nhằm tối ưu hóa công tác tuyển sinh Sau đại học của Trường Đại học Tài chính - Marketing (UFM).*
+
+## 📜 License
+
+Dự án được nghiên cứu và phát triển chuyên biệt nhằm tối ưu hóa công tác tuyển sinh Sau đại học của **Trường Đại học Tài chính - Marketing (UFM)**.
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ for UFM Postgraduate Admissions</sub>
+</div>

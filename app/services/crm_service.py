@@ -106,7 +106,7 @@ def create_lead(session_id: str, guest_profile: dict) -> str:
         "updated_at": now,
         "ho_ten": guest_profile.get("full_name", ""),
         "nam_sinh": birth_year,
-        "tuoi": 2026 - birth_year if birth_year else 0,
+        "tuoi": datetime.now().year - birth_year if birth_year else 0,
         "trinh_do": guest_profile.get("education_level", ""),
         "chi_tiet_trinh_do": guest_profile.get("education_detail", ""),
         "contact": guest_profile.get("contact", ""),

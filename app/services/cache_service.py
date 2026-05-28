@@ -1,11 +1,13 @@
 """app/services/cache_service.py — Persistent Cache cho PDF & Memory Cache cho HTML + QA Cache"""
 import os
+import re
 import json
 import logging
 import hashlib
 from difflib import SequenceMatcher
 from pathlib import Path
 from cachetools import TTLCache
+from underthesea import word_tokenize
 from app.config import settings
 
 logger = logging.getLogger("ufm-chatbot")
@@ -80,8 +82,6 @@ def set_pdf(url: str, content: str) -> None:
 # --- QA SEMANTIC CACHE ---
 def clean_query(q: str) -> str:
     # Xóa dấu câu và đưa về chữ thường, dùng underthesea để gộp từ tiếng Việt
-    import re
-    from underthesea import word_tokenize
     q = q.lower()
     q = re.sub(r'[^\w\s]', ' ', q)
     tokens = word_tokenize(q, format="text").split()
@@ -96,7 +96,7 @@ def get_cached_answer(query: str, similarity_threshold: float = 0.90) -> str | N
     best_match = None
     best_ratio = 0.0
     
-    for item in reversed(_qa_cache):  # Ưu tiên các câu mới nhất
+    for item in reversed(_qa_cache[-100:]):  # Chỉ scan 100 câu mới nhất để tránh O(n*m) quá lớn
         ratio = SequenceMatcher(None, query_clean, item["query_clean"]).ratio()
         if ratio > best_ratio:
             best_ratio = ratio

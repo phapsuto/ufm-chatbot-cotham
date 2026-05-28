@@ -31,3 +31,5 @@ transformers>=4.30.0
 hf_transfer>=0.1.4
 google-genai>=2.6.0
 
+# Lightweight Reranker (thay thế BGE-Reranker-v2-M3 nặng ~560MB)
+flashrank>=0.2.0

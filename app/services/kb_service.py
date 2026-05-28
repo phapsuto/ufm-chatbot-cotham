@@ -5,6 +5,7 @@ import math
 import logging
 from pathlib import Path
 from collections import Counter
+from underthesea import word_tokenize
 from app.services import vector_service
 from app.services import reranker_service
 
@@ -54,7 +55,6 @@ _chunk_ids = []
 _bm25 = None
 
 def _tokenize(text: str) -> list[str]:
-    from underthesea import word_tokenize
     # Tách từ tiếng Việt thành các compound words (ví dụ: "sinh_viên")
     text = text.lower()
     tokens = word_tokenize(text, format="text").split()
@@ -188,8 +188,9 @@ def _load_kb():
         logger.info(f"[kb] Loaded {total_files} offline files ({len(_chunks)} chunks)")
         vector_service.index_chunks(_chunks, _chunk_ids)
 
-# Khởi tạo lúc start
-_load_kb()
+def init_kb():
+    """Gọi từ main.py lifespan để khởi tạo KB một cách có kiểm soát."""
+    _load_kb()
 
 def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) -> list[dict]:
     """Tìm kiếm nội dung offline dựa vào câu hỏi, sử dụng Hybrid Search (BM25 + Vector) và metadata boost."""
