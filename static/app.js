@@ -7,6 +7,8 @@ const state = {
   guestProfile: null,
   enrollmentId: null,
   coThamXung: null, // "cô" hoặc "em" — xác định từ vai vế user
+  ttsAvailable: false, // TTS sidecar có sẵn không
+  currentAudio: null, // Audio đang phát (nếu có)
 };
 
 const $ = (s) => document.querySelector(s);
@@ -382,6 +384,8 @@ async function sendMessage(text) {
       // Lưu ngôi xưng để typing message lần sau dùng đúng
       if (metadata.co_tham_xung) state.coThamXung = metadata.co_tham_xung;
     }
+    // Thêm nút 🔊 TTS nếu có text
+    if (fullText && state.ttsAvailable) addSpeakButton(botEl, fullText);
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
   } catch(e) {
     hideTyping();
@@ -392,6 +396,57 @@ async function sendMessage(text) {
 }
 
 function askQuestion(text) { sendMessage(text); }
+
+// ══════════════════════════════════
+// TTS (Text-to-Speech) — Nút 🔊
+// ══════════════════════════════════
+function addSpeakButton(botEl, text) {
+  const bubble = botEl.querySelector('.bot-bubble');
+  if (!bubble) return;
+  const btn = document.createElement('button');
+  btn.className = 'speak-btn';
+  btn.innerHTML = '🔊';
+  btn.title = 'Nghe Cô Thắm đọc';
+  btn.setAttribute('aria-label', 'Nghe giọng nói');
+  btn.onclick = () => speakText(btn, text);
+  bubble.appendChild(btn);
+}
+
+async function speakText(btn, text) {
+  if (btn.disabled) return;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '⏳'; btn.disabled = true;
+  try {
+    const resp = await fetch('/api/tts/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!resp.ok) throw new Error('TTS error ' + resp.status);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    // Dừng audio trước đó (nếu có)
+    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
+    const audio = new Audio(url);
+    state.currentAudio = audio;
+    btn.innerHTML = '⏸️';
+    audio.onended = () => { btn.innerHTML = '🔊'; btn.disabled = false; state.currentAudio = null; URL.revokeObjectURL(url); };
+    audio.onerror = () => { btn.innerHTML = '❌'; setTimeout(() => { btn.innerHTML = '🔊'; btn.disabled = false; }, 2000); };
+    audio.play();
+  } catch(e) {
+    console.error('[TTS]', e);
+    btn.innerHTML = '❌'; setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
+  }
+}
+
+// Kiểm tra TTS sidecar có sẵn không
+async function checkTTSAvailability() {
+  try {
+    const resp = await fetch('/api/tts/health');
+    const data = await resp.json();
+    state.ttsAvailable = data.tts_available === true;
+  } catch(e) { state.ttsAvailable = false; }
+}
 
 // ══════════════════════════════════
 // INPUT & SIDEBAR
@@ -428,4 +483,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const inp = inputEl();
     if (inp) { inp.addEventListener('input', () => { autoResize(); toggleSendBtn(); }); inp.addEventListener('keydown', handleKeydown); toggleSendBtn(); }
   }, 600);
+  // Kiểm tra TTS sidecar
+  checkTTSAvailability();
 });

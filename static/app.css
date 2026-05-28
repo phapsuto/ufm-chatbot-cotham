@@ -230,6 +230,18 @@ body {
 .source-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; background: rgba(0,48,135,0.06); border: 1px solid rgba(0,48,135,0.15); border-radius: var(--radius-full); font-size: 11px; color: var(--color-primary); text-decoration: none; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; transition: all 0.2s; cursor: pointer; }
 .source-chip:hover { background: rgba(0,48,135,0.12); border-color: var(--color-primary); transform: translateY(-1px); }
 
+/* TTS Speak Button */
+.speak-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(0,48,135,0.06); border: 1px solid rgba(0,48,135,0.12);
+  border-radius: var(--radius-full); width: 32px; height: 32px;
+  cursor: pointer; font-size: 16px; margin-top: 8px; float: right;
+  transition: all 0.2s ease; opacity: 0.7;
+}
+.speak-btn:hover { opacity: 1; background: rgba(0,48,135,0.12); transform: scale(1.1); }
+.speak-btn:disabled { cursor: wait; opacity: 0.5; }
+.speak-btn:active { transform: scale(0.95); }
+
 /* Suggestions */
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding-left: 42px; }
 .suggestion-chip { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); font-size: 13px; padding: 8px 14px; border-radius: var(--radius-full); cursor: pointer; transition: all 0.2s; backdrop-filter: blur(8px); }

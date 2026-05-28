@@ -4,8 +4,8 @@ import uuid
 import time
 import logging
 
-from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse, Response
 
 from app.models import ChatRequest
 from app.services import (
@@ -206,3 +206,34 @@ async def chat(req: ChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+# ── TTS (Text-to-Speech) Endpoints ─────────────────────────
+from pydantic import BaseModel
+
+class TTSRequest(BaseModel):
+    text: str
+
+
+@router.post("/api/tts/speak")
+async def tts_speak(req: TTSRequest):
+    """Tổng hợp giọng nói từ text → WAV audio (gọi TTS sidecar)."""
+    from app.services import tts_service
+
+    audio = await tts_service.synthesize(req.text)
+    if audio:
+        return Response(
+            content=audio,
+            media_type="audio/wav",
+            headers={"Content-Disposition": "inline; filename=co_tham.wav"},
+        )
+    raise HTTPException(status_code=503, detail="TTS service không khả dụng — vui lòng thử lại")
+
+
+@router.get("/api/tts/health")
+async def tts_health():
+    """Kiểm tra TTS sidecar status."""
+    from app.services import tts_service
+
+    available = await tts_service.is_available()
+    return {"tts_available": available}
