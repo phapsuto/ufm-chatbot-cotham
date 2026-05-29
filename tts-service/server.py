@@ -5,9 +5,11 @@ Model: VieNeu-TTS-v2 GGUF Q8 (~500MB, CPU)
 Voice: Thục Đoan (nữ, miền Nam, nhẹ nhàng)
 """
 import io
+import os
 import re
 import time
 import wave
+import tempfile
 import logging
 from contextlib import asynccontextmanager
 
@@ -99,11 +101,18 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _audio_to_wav_bytes(audio_data) -> bytes:
-    """Convert audio data from vieneu to WAV bytes."""
-    buf = io.BytesIO()
-    _tts.save(audio_data, buf)
-    buf.seek(0)
-    return buf.read()
+    """Convert audio data from vieneu to WAV bytes using temp file."""
+    # vieneu SDK requires a file path with .wav extension
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        _tts.save(audio_data, tmp_path)
+        with open(tmp_path, "rb") as f:
+            return f.read()
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def _concat_wav_bytes(parts: list[bytes]) -> bytes:
@@ -176,7 +185,7 @@ async def synthesize(req: SynthesizeRequest):
             headers={
                 "X-TTS-Duration": f"{elapsed:.3f}",
                 "X-TTS-Sentences": str(len(sentences)),
-                "X-TTS-Voice": _voice_name,
+                "X-TTS-Voice": _voice_name.encode("ascii", errors="replace").decode("ascii"),
             },
         )
 
