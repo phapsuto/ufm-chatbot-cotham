@@ -421,12 +421,14 @@ async function sendMessage(text, autoSpeak = false) {
 
       // Phát nối tiếp — không gián đoạn vì đã pre-fetch
       for (let i = 0; i < blobPromises.length; i++) {
+        if (_ttsCancelled) { console.log('[TTS] Cancelled, dừng phát'); break; }
         const blob = await blobPromises[i];
+        if (_ttsCancelled) break;
         if (!blob || blob.size < 1000) continue;
         debugTTS(`🔊 Đoạn ${i + 1}/${chunks.length}...`);
         try {
           await playAudioBlob(blob);
-        } catch(e) { console.error('[TTS] play error', e); }
+        } catch(e) { if (!_ttsCancelled) console.error('[TTS] play error', e); }
       }
 
       hideVoiceOverlay();
@@ -688,7 +690,18 @@ async function autoPlayTTS(text) {
 let _recognition = null;
 let _silenceTimer = null;
 let _fullTranscript = '';
+let _ttsCancelled = false; // Flag để cancel TTS khi nhấn X
 const SILENCE_TIMEOUT = 2500; // 2.5 giây im lặng → gửi
+
+// Dừng TẤT CẢ audio + cancel TTS queue
+function stopAllTTS() {
+  _ttsCancelled = true;
+  // Dừng AudioContext source
+  if (_currentSource) { try { _currentSource.stop(); } catch(e) {} _currentSource = null; }
+  // Dừng fallback HTML5 Audio
+  if (_fallbackAudio) { try { _fallbackAudio.pause(); _fallbackAudio.src = ''; } catch(e) {} }
+  console.log('[TTS] ❌ Cancelled');
+}
 
 // --- Overlay helpers ---
 function showVoiceOverlay() {
@@ -804,8 +817,22 @@ function initSpeechRecognition() {
 }
 
 function toggleVoiceChat() {
-  if (state.isLoading) return;
+  // Nếu đang phát TTS hoặc processing → DỪNG ngay
+  const overlay = $('#voice-overlay');
+  if (overlay && overlay.classList.contains('active')) {
+    stopAllTTS();
+    clearTimeout(_silenceTimer);
+    if (_recognition) try { _recognition.stop(); } catch(e) {}
+    stopRecording();
+    hideVoiceOverlay();
+    clearVoiceStatus();
+    state.isLoading = false;
+    toggleSendBtn();
+    return;
+  }
+
   warmUpAudio(); // ← Tạo/resume AudioContext ngay trên user click
+  _ttsCancelled = false; // Reset flag cho lượt mới
   if (state.isRecording) {
     clearTimeout(_silenceTimer);
     if (_recognition) _recognition.stop();
@@ -813,7 +840,8 @@ function toggleVoiceChat() {
     if (!_recognition) _recognition = initSpeechRecognition();
     if (!_recognition) return;
     // Dừng audio đang phát
-    if (_currentSource) { try { _currentSource.stop(); } catch(e) {} _currentSource = null; }
+    stopAllTTS();
+    _ttsCancelled = false;
     _fullTranscript = '';
     inputEl().value = '';
     try {
