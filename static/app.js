@@ -9,7 +9,6 @@ const state = {
   coThamXung: null, // "cô" hoặc "em" — xác định từ vai vế user
   ttsAvailable: false, // TTS sidecar có sẵn không
   currentAudio: null, // Audio đang phát (nếu có)
-  currentAudioSource: null, // AudioContext source đang phát
   isRecording: false, // Đang ghi âm voice chat
 };
 
@@ -355,10 +354,8 @@ async function sendMessage(text, autoSpeak = false) {
   // Voice mode: cập nhật overlay
   if (autoSpeak) {
     setOverlayState('processing');
-    setOverlayStatus('✨ Cô Thắm đang suy nghĩ...');
+    setOverlayStatus('Chờ cô Thắm một xíu nha 💭');
   }
-
-  let ttsPromise = null; // Prefetch TTS sớm
 
   try {
     const resp = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -370,7 +367,6 @@ async function sendMessage(text, autoSpeak = false) {
     const contentEl = botEl.querySelector('.bot-message-content');
     const reader = resp.body.getReader(); const decoder = new TextDecoder();
     let fullText = '', metadata = null, buffer = '';
-    let ttsStarted = false;
 
     while (true) {
       const { done, value } = await reader.read(); if (done) break;
@@ -383,15 +379,6 @@ async function sendMessage(text, autoSpeak = false) {
           if (data.done) metadata = data;
           else if (data.content) { fullText += data.content; contentEl.innerHTML = renderMd(fullText); scrollBottom(); }
         } catch(e) {}
-      }
-      // Prefetch TTS sớm: sau khi có >= 50 ký tự, gửi TTS request song song
-      if (autoSpeak && !ttsStarted && fullText.length >= 50) {
-        ttsStarted = true;
-        // Gửi request TTS ngay, không đợi stream xong
-        ttsPromise = fetch('/api/tts/speak', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: fullText }),
-        }).catch(() => null);
       }
     }
     if (buffer.startsWith('data: ') && buffer !== 'data: [DONE]') {
@@ -408,23 +395,9 @@ async function sendMessage(text, autoSpeak = false) {
     // Thêm nút 🔊 TTS
     if (fullText && state.ttsAvailable) {
       addSpeakButton(botEl, fullText);
-      // Voice mode: phát giọng nói
+      // Voice mode: gọi TTS với FULL TEXT
       if (autoSpeak) {
-        // Nếu đã prefetch → dùng response sẵn, nếu chưa → gọi mới
-        if (ttsPromise) {
-          const ttsResp = await ttsPromise;
-          if (ttsResp && ttsResp.ok) {
-            setOverlayState('speaking');
-            setOverlayStatus('🔊 Cô Thắm đang trả lời...');
-            const blob = await ttsResp.blob();
-            await playAudioBlob(blob, () => { hideVoiceOverlay(); clearVoiceStatus(); });
-          } else {
-            // Prefetch thất bại, gọi lại
-            autoPlayTTS(fullText);
-          }
-        } else {
-          autoPlayTTS(fullText);
-        }
+        await autoPlayTTS(fullText);
       }
     }
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
@@ -456,7 +429,6 @@ function addSpeakButton(botEl, text) {
 
 async function speakText(btn, text) {
   if (btn.disabled) return;
-  unlockAudio(); // Unlock AudioContext trên user gesture
   const orig = btn.innerHTML;
   btn.innerHTML = '⏳'; btn.disabled = true;
   try {
@@ -468,9 +440,8 @@ async function speakText(btn, text) {
     if (!resp.ok) throw new Error('TTS error ' + resp.status);
     const blob = await resp.blob();
     btn.innerHTML = '⏸️';
-    await playAudioBlob(blob, () => {
-      btn.innerHTML = '🔊'; btn.disabled = false;
-    });
+    await playAudioBlob(blob);
+    btn.innerHTML = '🔊'; btn.disabled = false;
   } catch(e) {
     console.error('[TTS]', e);
     btn.innerHTML = '❌'; setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
@@ -485,59 +456,39 @@ async function checkTTSAvailability() {
     state.ttsAvailable = data.tts_available === true;
   } catch(e) { state.ttsAvailable = false; }
 }
-// ── AudioContext để bypass Chrome autoplay policy ──
-// Unlock audio — gọi trên user gesture (click mic/speak)
-function unlockAudio() {
-  // Tạo Audio element silent để unlock autoplay
-  try {
-    const a = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-    a.volume = 0;
-    a.play().then(() => a.pause()).catch(() => {});
-  } catch(e) {}
-}
 
-// Phát audio từ blob — dùng Audio element đơn giản, đáng tin cậy
-function playAudioBlob(blob, onEnd) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob);
-    
-    // Dừng audio trước đó
-    if (state.currentAudio) {
-      state.currentAudio.pause();
-      state.currentAudio = null;
-    }
+// ── Phát audio — CỰC KỲ ĐƠN GIẢN ──
+async function playAudioBlob(blob) {
+  // Dừng audio trước đó
+  if (state.currentAudio) {
+    state.currentAudio.pause();
+    state.currentAudio = null;
+  }
 
-    const audio = new Audio();
-    audio.volume = 1.0;
-    audio.preload = 'auto';
-    state.currentAudio = audio;
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.volume = 1.0;
+  state.currentAudio = audio;
 
-    audio.oncanplaythrough = () => {
-      console.log('[TTS] Audio ready, playing...');
-      audio.play().catch(err => {
-        console.error('[TTS] Play failed:', err);
-        URL.revokeObjectURL(url);
-        if (onEnd) onEnd();
-        reject(err);
-      });
-    };
+  return new Promise((resolve) => {
     audio.onended = () => {
-      console.log('[TTS] Audio finished');
+      console.log('[TTS] ✅ Audio phát xong');
       state.currentAudio = null;
       URL.revokeObjectURL(url);
-      if (onEnd) onEnd();
       resolve();
     };
-    audio.onerror = (e) => {
-      console.error('[TTS] Audio error:', e);
+    audio.onerror = () => {
+      console.error('[TTS] ❌ Lỗi phát audio');
       state.currentAudio = null;
       URL.revokeObjectURL(url);
-      if (onEnd) onEnd();
-      reject(e);
+      resolve();
     };
-
-    audio.src = url;
-    audio.load();
+    // Gọi play() TRỰC TIẾP — không đợi event nào khác
+    audio.play().catch((err) => {
+      console.error('[TTS] ❌ Play bị chặn:', err);
+      URL.revokeObjectURL(url);
+      resolve();
+    });
   });
 }
 
@@ -556,10 +507,10 @@ async function autoPlayTTS(text) {
     if (!resp.ok) throw new Error('TTS error ' + resp.status);
 
     const blob = await resp.blob();
-    await playAudioBlob(blob, () => {
-      hideVoiceOverlay();
-      clearVoiceStatus();
-    });
+    console.log('[TTS] Audio blob size:', blob.size, 'bytes');
+    await playAudioBlob(blob);
+    hideVoiceOverlay();
+    clearVoiceStatus();
   } catch(e) {
     console.error('[TTS auto-play]', e);
     hideVoiceOverlay();
@@ -691,16 +642,13 @@ function initSpeechRecognition() {
 function toggleVoiceChat() {
   if (state.isLoading) return;
   if (state.isRecording) {
-    // User bấm dừng → gửi luôn
     clearTimeout(_silenceTimer);
     if (_recognition) _recognition.stop();
   } else {
-    // Bắt đầu ghi âm
-    unlockAudio(); // CRITICAL: unlock AudioContext trên user gesture
     if (!_recognition) _recognition = initSpeechRecognition();
     if (!_recognition) return;
     // Dừng audio đang phát (nếu có)
-    if (state.currentAudioSource) { try { state.currentAudioSource.stop(); } catch(e) {} state.currentAudioSource = null; }
+    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
     _fullTranscript = '';
     inputEl().value = '';
     try {
