@@ -492,15 +492,32 @@ async function sendMessage(text, autoSpeak = false) {
       addSpeakButton(botEl, fullText);
     }
 
-    // Chờ TTS queue phát hết (nếu voice mode)
+    // Chờ TTS queue phát hết (nếu voice mode) → tự động nghe tiếp
     if (autoSpeak && ttsQueue.length > 0) {
       await drainTTSQueue();
       // Chờ thêm nếu đang phát nốt
       while (ttsPlayIndex < ttsQueue.length && !_ttsCancelled) {
         await new Promise(r => setTimeout(r, 100));
       }
-      hideVoiceOverlay();
-      clearVoiceStatus();
+
+      // ══ AUTO-LISTEN: tự động nghe tiếp sau khi Cô Thắm nói xong ══
+      if (!_ttsCancelled) {
+        _fullTranscript = '';
+        inputEl().value = '';
+        setOverlayState('listening');
+        setOverlayStatus('🎤 Đang nghe...');
+        setOverlayTranscript('');
+        if (!_recognition) _recognition = initSpeechRecognition();
+        if (_recognition) {
+          try { _recognition.start(); } catch(e) {
+            try { _recognition.stop(); } catch(e2) {}
+            setTimeout(() => { try { _recognition.start(); } catch(e3) {} }, 300);
+          }
+        }
+      } else {
+        hideVoiceOverlay();
+        clearVoiceStatus();
+      }
     }
 
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
