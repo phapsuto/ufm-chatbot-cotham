@@ -9,6 +9,7 @@ const state = {
   coThamXung: null, // "cô" hoặc "em" — xác định từ vai vế user
   ttsAvailable: false, // TTS sidecar có sẵn không
   currentAudio: null, // Audio đang phát (nếu có)
+  currentAudioSource: null, // AudioContext source đang phát
   isRecording: false, // Đang ghi âm voice chat
 };
 
@@ -423,6 +424,7 @@ function addSpeakButton(botEl, text) {
 
 async function speakText(btn, text) {
   if (btn.disabled) return;
+  unlockAudio(); // Unlock AudioContext trên user gesture
   const orig = btn.innerHTML;
   btn.innerHTML = '⏳'; btn.disabled = true;
   try {
@@ -433,15 +435,10 @@ async function speakText(btn, text) {
     });
     if (!resp.ok) throw new Error('TTS error ' + resp.status);
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    // Dừng audio trước đó (nếu có)
-    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
-    const audio = new Audio(url);
-    state.currentAudio = audio;
     btn.innerHTML = '⏸️';
-    audio.onended = () => { btn.innerHTML = '🔊'; btn.disabled = false; state.currentAudio = null; URL.revokeObjectURL(url); };
-    audio.onerror = () => { btn.innerHTML = '❌'; setTimeout(() => { btn.innerHTML = '🔊'; btn.disabled = false; }, 2000); };
-    audio.play();
+    await playAudioBlob(blob, () => {
+      btn.innerHTML = '🔊'; btn.disabled = false;
+    });
   } catch(e) {
     console.error('[TTS]', e);
     btn.innerHTML = '❌'; setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
@@ -456,11 +453,51 @@ async function checkTTSAvailability() {
     state.ttsAvailable = data.tts_available === true;
   } catch(e) { state.ttsAvailable = false; }
 }
+// ── AudioContext để bypass Chrome autoplay policy ──
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
 
-// Auto-play TTS cho voice mode (không cần button)
+// Unlock audio trên user gesture (gọi khi bấm mic)
+function unlockAudio() {
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  // Tạo silent buffer để unlock
+  const buf = ctx.createBuffer(1, 1, 22050);
+  const src = ctx.createBufferSource();
+  src.buffer = buf; src.connect(ctx.destination); src.start(0);
+}
+
+// Phát audio WAV từ blob qua AudioContext (không bị block)
+async function playAudioBlob(blob, onEnd) {
+  const ctx = getAudioCtx();
+  const arrayBuf = await blob.arrayBuffer();
+  const audioBuf = await ctx.decodeAudioData(arrayBuf);
+  
+  // Dừng audio trước đó
+  if (state.currentAudioSource) {
+    try { state.currentAudioSource.stop(); } catch(e) {}
+  }
+  
+  const source = ctx.createBufferSource();
+  source.buffer = audioBuf;
+  source.connect(ctx.destination);
+  source.onended = () => {
+    state.currentAudioSource = null;
+    if (onEnd) onEnd();
+  };
+  source.start(0);
+  state.currentAudioSource = source;
+}
+
+// Auto-play TTS cho voice mode
 async function autoPlayTTS(text) {
   try {
-    // Chuyển overlay sang speaking
     setOverlayState('speaking');
     setOverlayStatus('🔊 Cô Thắm đang trả lời...');
     setOverlayTranscript('');
@@ -473,27 +510,10 @@ async function autoPlayTTS(text) {
     if (!resp.ok) throw new Error('TTS error ' + resp.status);
 
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-
-    // Dừng audio trước đó
-    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
-
-    const audio = new Audio(url);
-    state.currentAudio = audio;
-
-    audio.onended = () => {
-      state.currentAudio = null;
-      URL.revokeObjectURL(url);
+    await playAudioBlob(blob, () => {
       hideVoiceOverlay();
       clearVoiceStatus();
-    };
-    audio.onerror = () => {
-      console.error('[TTS] Audio playback error');
-      hideVoiceOverlay();
-      clearVoiceStatus();
-    };
-
-    await audio.play();
+    });
   } catch(e) {
     console.error('[TTS auto-play]', e);
     hideVoiceOverlay();
@@ -630,10 +650,11 @@ function toggleVoiceChat() {
     if (_recognition) _recognition.stop();
   } else {
     // Bắt đầu ghi âm
+    unlockAudio(); // CRITICAL: unlock AudioContext trên user gesture
     if (!_recognition) _recognition = initSpeechRecognition();
     if (!_recognition) return;
     // Dừng audio đang phát (nếu có)
-    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
+    if (state.currentAudioSource) { try { state.currentAudioSource.stop(); } catch(e) {} state.currentAudioSource = null; }
     _fullTranscript = '';
     inputEl().value = '';
     try {
