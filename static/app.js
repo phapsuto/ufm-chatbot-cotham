@@ -66,14 +66,17 @@ function validateAndGoStep3() {
   let valid = true;
   const name = $('#ob-name').value.trim();
   const birth = parseInt($('#ob-birth').value);
+  const gender = $('#ob-gender').value;
   const edu = $('#ob-edu').value;
 
   $('#err-name').textContent = '';
   $('#err-birth').textContent = '';
+  $('#err-gender').textContent = '';
   $('#err-edu').textContent = '';
 
   if (!name) { $('#err-name').textContent = 'Vui lòng nhập họ tên'; valid = false; }
   if (!birth || birth < 1950 || birth > 2010) { $('#err-birth').textContent = 'Năm sinh từ 1950 đến 2010'; valid = false; }
+  if (!gender) { $('#err-gender').textContent = 'Vui lòng chọn giới tính'; valid = false; }
   if (!edu) { $('#err-edu').textContent = 'Vui lòng chọn trình độ'; valid = false; }
   if (valid) goToStep(3);
 }
@@ -97,6 +100,7 @@ async function submitOnboarding() {
   const body = {
     full_name: $('#ob-name').value.trim(),
     birth_year: parseInt($('#ob-birth').value),
+    gender: $('#ob-gender').value,
     education_level: $('#ob-edu').value,
     education_detail: $('#ob-edu-detail').value.trim(),
     contact: contact,
@@ -128,9 +132,10 @@ function showChatScreen() {
   const profile = state.guestProfile;
   if (profile) {
     const firstName = profile.full_name.split(' ').pop();
+    const pronoun = profile.gender === 'nam' ? 'anh' : 'chị';
     const eduLabels = { dai_hoc: 'Đại học', sau_dai_hoc: 'Thạc sĩ', cao_dang: 'Cao đẳng' };
     const eduText = eduLabels[profile.education_level] || profile.education_level;
-    const greeting = `Dạ chào ${profile.full_name}! Cô Thắm đây ạ 😊 Cô thấy ${firstName} đang có nền tảng ${eduText} rồi — cô sẵn sàng hỗ trợ ${firstName} tìm hiểu chương trình phù hợp nhất nhé. ${firstName} muốn hỏi về điều gì trước ạ?`;
+    const greeting = `Dạ chào ${pronoun} ${firstName}! Cô Thắm đây ạ 😊 Cô thấy ${pronoun} đang có nền tảng ${eduText} rồi — cô sẵn sàng hỗ trợ ${pronoun} ${firstName} tìm hiểu chương trình phù hợp nhất nhé. ${pronoun} ${firstName} muốn hỏi về điều gì trước ạ?`;
     setTimeout(() => { addBotGreeting(greeting); }, 500);
   }
 }
@@ -356,59 +361,9 @@ async function sendMessage(text, autoSpeak = false) {
     setOverlayStatus('Chờ cô Thắm một xíu nha 💭');
   }
 
-  // ── Chunked TTS: tách câu, gửi TTS song song, phát nối tiếp ──
-  let _ttsBlobQueue = [];      // Queue audio blob promises
-  let _ttsPlaying = false;     // Đang phát audio?
-  let _sentenceBuffer = '';    // Buffer tích lũy text chờ tách câu
-  let _ttsOverlayShown = false;
-
-  // Gửi 1 câu tới TTS, trả promise → blob
-  function fetchSentenceTTS(sentence) {
-    console.log('[TTS-chunk] Gửi câu:', sentence.substring(0, 50) + '...');
-    return fetch('/api/tts/speak', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: sentence }),
-    }).then(r => r.ok ? r.blob() : null).catch(() => null);
-  }
-
-  // Player: lấy blob từ queue, phát lần lượt
-  async function drainTTSQueue() {
-    if (_ttsPlaying) return;
-    _ttsPlaying = true;
-    while (_ttsBlobQueue.length > 0) {
-      const blobPromise = _ttsBlobQueue.shift();
-      const blob = await blobPromise;
-      if (!blob || blob.size < 1000) continue; // Skip lỗi/rỗng
-      // Hiện speaking overlay khi phát audio đầu tiên
-      if (!_ttsOverlayShown) {
-        setOverlayState('speaking');
-        debugTTS('🔊 Cô Thắm đang trả lời...');
-        _ttsOverlayShown = true;
-      }
-      try {
-        await playAudioBlob(blob);
-      } catch(e) { console.error('[TTS-chunk] play error', e); }
-    }
-    _ttsPlaying = false;
-  }
-
-  // Tách câu từ buffer — trả [câu_hoàn_chỉnh, buffer_còn_lại]
-  function extractSentences(buf) {
-    const sentences = [];
-    // Tách tại dấu . ! ? hoặc xuống dòng
-    const re = /[^.!?\n]+[.!?\n]+\s*/g;
-    let match, lastIdx = 0;
-    while ((match = re.exec(buf)) !== null) {
-      sentences.push(match[0].trim());
-      lastIdx = re.lastIndex;
-    }
-    return [sentences, buf.slice(lastIdx)];
-  }
-
   try {
     const resp = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text.trim(), session_id: state.sessionId }) });
+      body: JSON.stringify({ message: text.trim(), session_id: state.sessionId, gender: state.guestProfile?.gender || '' }) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
     hideTyping();
@@ -426,35 +381,12 @@ async function sendMessage(text, autoSpeak = false) {
         try {
           const data = JSON.parse(line.slice(6));
           if (data.done) metadata = data;
-          else if (data.content) {
-            fullText += data.content;
-            contentEl.innerHTML = renderMd(fullText);
-            scrollBottom();
-
-            // ── Chunked TTS: tách câu ngay khi stream ──
-            if (autoSpeak && state.ttsAvailable) {
-              _sentenceBuffer += data.content;
-              const [sentences, remaining] = extractSentences(_sentenceBuffer);
-              _sentenceBuffer = remaining;
-              for (const sent of sentences) {
-                if (sent.length > 5) { // Bỏ qua câu quá ngắn
-                  _ttsBlobQueue.push(fetchSentenceTTS(sent));
-                  drainTTSQueue(); // Bắt đầu phát nếu chưa
-                }
-              }
-            }
-          }
+          else if (data.content) { fullText += data.content; contentEl.innerHTML = renderMd(fullText); scrollBottom(); }
         } catch(e) {}
       }
     }
     if (buffer.startsWith('data: ') && buffer !== 'data: [DONE]') {
       try { const data = JSON.parse(buffer.slice(6)); if (data.done) metadata = data; } catch(e) {}
-    }
-
-    // ── Gửi phần text còn lại trong buffer ──
-    if (autoSpeak && state.ttsAvailable && _sentenceBuffer.trim().length > 5) {
-      _ttsBlobQueue.push(fetchSentenceTTS(_sentenceBuffer.trim()));
-      drainTTSQueue();
     }
 
     if (metadata) {
@@ -469,12 +401,34 @@ async function sendMessage(text, autoSpeak = false) {
       addSpeakButton(botEl, fullText);
     }
 
-    // ── Đợi TTS queue phát xong rồi mới tắt overlay ──
-    if (autoSpeak) {
-      // Đợi tất cả blob promises resolve
-      while (_ttsBlobQueue.length > 0 || _ttsPlaying) {
-        await new Promise(r => setTimeout(r, 300));
+    // ══ SMART CHUNKED TTS — gộp đoạn lớn, fetch song song, phát nối tiếp ══
+    if (autoSpeak && state.ttsAvailable && fullText) {
+      setOverlayState('speaking');
+      debugTTS('🔊 Cô Thắm đang trả lời...');
+
+      // Tách text thành chunks ~300 chars tại ranh giới câu
+      const chunks = splitIntoChunks(fullText, 300);
+      console.log('[TTS] Chia thành', chunks.length, 'đoạn:', chunks.map(c => c.length + ' chars'));
+
+      // Fetch TẤT CẢ chunks song song → sẵn sàng khi cần
+      const blobPromises = chunks.map(chunk =>
+        fetch('/api/tts/speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: chunk }),
+        }).then(r => r.ok ? r.blob() : null).catch(() => null)
+      );
+
+      // Phát nối tiếp — không gián đoạn vì đã pre-fetch
+      for (let i = 0; i < blobPromises.length; i++) {
+        const blob = await blobPromises[i];
+        if (!blob || blob.size < 1000) continue;
+        debugTTS(`🔊 Đoạn ${i + 1}/${chunks.length}...`);
+        try {
+          await playAudioBlob(blob);
+        } catch(e) { console.error('[TTS] play error', e); }
       }
+
       hideVoiceOverlay();
       clearVoiceStatus();
     }
@@ -536,6 +490,57 @@ async function checkTTSAvailability() {
     state.ttsAvailable = data.tts_available === true;
   } catch(e) { state.ttsAvailable = false; }
 }
+// ══════════════════════════════════
+// TEXT SPLITTING — Chia text thành chunks cho TTS
+// ══════════════════════════════════
+function splitIntoChunks(text, maxChars = 300) {
+  // Strip markdown trước
+  let clean = text
+    .replace(/\*\*|__|~~|`{1,3}/g, '')
+    .replace(/#{1,6}\s*/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+    .replace(/^[\s]*[-*•]\s+/gm, '')
+    .replace(/^[\s]*\d+\.\s+/gm, '')
+    .replace(/\|[^|]*\|/g, '')
+    .replace(/-{3,}/g, '')
+    .replace(/\n{2,}/g, '. ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (clean.length <= maxChars) return [clean];
+
+  const chunks = [];
+  let remaining = clean;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChars) {
+      chunks.push(remaining.trim());
+      break;
+    }
+    // Cắt tại câu gần nhất trong phạm vi maxChars
+    const slice = remaining.substring(0, maxChars);
+    let cutAt = -1;
+    // Tìm dấu chấm câu cuối cùng
+    for (const sep of ['. ', '! ', '? ', '.\n', '!\n', '?\n']) {
+      const idx = slice.lastIndexOf(sep);
+      if (idx > cutAt) cutAt = idx + 1;
+    }
+    // Fallback: dấu phẩy hoặc khoảng trắng
+    if (cutAt < maxChars / 3) {
+      const commaIdx = slice.lastIndexOf(', ');
+      if (commaIdx > maxChars / 3) cutAt = commaIdx + 2;
+      else cutAt = slice.lastIndexOf(' ') + 1;
+    }
+    if (cutAt <= 0) cutAt = maxChars;
+
+    chunks.push(remaining.substring(0, cutAt).trim());
+    remaining = remaining.substring(cutAt).trim();
+  }
+
+  return chunks.filter(c => c.length > 5);
+}
+
 // ══════════════════════════════════
 // AUDIO ENGINE — Debug + Dual playback (AudioContext + HTML5 Audio fallback)
 // ══════════════════════════════════

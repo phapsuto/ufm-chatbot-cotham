@@ -31,6 +31,11 @@ async def chat(req: ChatRequest):
     memory_service.get_or_create_session(session_id)
     memory_service.update_pronoun_early(session_id, message)
 
+    # Lưu giới tính từ frontend (nếu có)
+    if req.gender:
+        sess = memory_service.get_or_create_session(session_id)
+        sess["context"]["user_gender"] = req.gender  # "nam" hoặc "nu"
+
     # 2. Check QA Semantic Cache (Tăng tốc độ trả lời)
     cached_answer = cache_service.get_cached_answer(message)
     if cached_answer:

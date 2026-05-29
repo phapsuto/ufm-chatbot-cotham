@@ -271,6 +271,13 @@ def get_context_summary(session_id: str) -> str:
                 edu_text += f" ({edu_detail})"
             parts.append(f"[HỌC VẤN] Trình độ hiện tại: {edu_text}")
 
+        # Giới tính — để xưng hô "anh" hay "chị"
+        gender = guest.get("gender") or ctx.get("user_gender", "")
+        if gender:
+            gender_label = "nam" if gender == "nam" else "nữ"
+            pronoun_for_user = "anh" if gender == "nam" else "chị"
+            parts.append(f"[GIỚI TÍNH] Người dùng là {gender_label}. Gọi họ là '{pronoun_for_user}' khi phù hợp.")
+
     if ctx["interested_level"]:
         level = "Thạc sĩ" if ctx["interested_level"] == "thac_si" else "Tiến sĩ"
         parts.append(f"Học viên quan tâm bậc: {level}")

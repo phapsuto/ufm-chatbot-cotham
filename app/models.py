@@ -5,6 +5,7 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     message: str
     session_id: str = ""
+    gender: str = ""  # "nam" hoặc "nu" — để Cô Thắm xưng hô đúng
 
 
 class SourceItem(BaseModel):
@@ -46,6 +47,7 @@ class HealthResponse(BaseModel):
 class GuestProfile(BaseModel):
     full_name: str
     birth_year: int
+    gender: str = ""  # "nam" | "nu"
     education_level: str  # "dai_hoc" | "sau_dai_hoc" | "cao_dang" | "khac"
     education_detail: str = ""
     contact: str

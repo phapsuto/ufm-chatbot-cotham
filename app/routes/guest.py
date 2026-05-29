@@ -86,6 +86,7 @@ async def register_guest(profile: GuestProfile):
         "session_id": session_id,
         "full_name": profile.full_name.strip(),
         "birth_year": profile.birth_year,
+        "gender": profile.gender or "",
         "education_level": profile.education_level,
         "education_detail": profile.education_detail.strip(),
         "contact": profile.contact.strip(),
@@ -111,7 +112,7 @@ async def register_guest(profile: GuestProfile):
         writer = csv.writer(f)
         writer.writerow([
             record["profile_id"], record["session_id"], record["full_name"],
-            record["birth_year"], record["education_level"],
+            record["birth_year"], record["gender"], record["education_level"],
             record["education_detail"], record["contact"],
             record["contact_type"], record["consent_given"], record["created_at"],
         ])
