@@ -429,6 +429,7 @@ function addSpeakButton(botEl, text) {
 
 async function speakText(btn, text) {
   if (btn.disabled) return;
+  warmUpAudio(); // ← Unlock audio ngay trên user click
   const orig = btn.innerHTML;
   btn.innerHTML = '⏳'; btn.disabled = true;
   try {
@@ -456,37 +457,58 @@ async function checkTTSAvailability() {
     state.ttsAvailable = data.tts_available === true;
   } catch(e) { state.ttsAvailable = false; }
 }
+// ══════════════════════════════════
+// AUDIO ENGINE — Persistent Audio Element (bypass Chrome autoplay)
+// ══════════════════════════════════
+// Chrome chỉ cho play() nếu Audio element đã được "activated" bởi user gesture.
+// Trick: tạo 1 Audio element duy nhất, play silence lúc user click,
+// sau đó reuse nó bằng cách đổi src → Chrome nhớ nó đã activated.
+let _audioEl = null;
 
-// ── Phát audio — CỰC KỲ ĐƠN GIẢN ──
-async function playAudioBlob(blob) {
-  // Dừng audio trước đó
-  if (state.currentAudio) {
-    state.currentAudio.pause();
-    state.currentAudio = null;
+function getAudioEl() {
+  if (!_audioEl) {
+    _audioEl = new Audio();
+    _audioEl.volume = 1.0;
   }
+  return _audioEl;
+}
 
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  audio.volume = 1.0;
-  state.currentAudio = audio;
+// Gọi hàm này trên MỌI user click (mic btn, speak btn, etc.)
+function warmUpAudio() {
+  const a = getAudioEl();
+  // Play 1 frame silence WAV để unlock autoplay
+  a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+  a.play().then(() => {
+    console.log('[Audio] ✅ Warmed up — autoplay unlocked');
+  }).catch(() => {
+    console.log('[Audio] ⚠️ Warm-up failed — will retry');
+  });
+}
 
+// Phát audio blob trên persistent element
+function playAudioBlob(blob) {
   return new Promise((resolve) => {
-    audio.onended = () => {
+    const a = getAudioEl();
+    // Dừng audio cũ
+    a.pause();
+    // Revoke URL cũ nếu có
+    if (a._blobUrl) { URL.revokeObjectURL(a._blobUrl); }
+
+    const url = URL.createObjectURL(blob);
+    a._blobUrl = url;
+    a.onended = () => {
       console.log('[TTS] ✅ Audio phát xong');
-      state.currentAudio = null;
-      URL.revokeObjectURL(url);
       resolve();
     };
-    audio.onerror = () => {
+    a.onerror = () => {
       console.error('[TTS] ❌ Lỗi phát audio');
-      state.currentAudio = null;
-      URL.revokeObjectURL(url);
       resolve();
     };
-    // Gọi play() TRỰC TIẾP — không đợi event nào khác
-    audio.play().catch((err) => {
-      console.error('[TTS] ❌ Play bị chặn:', err);
-      URL.revokeObjectURL(url);
+    a.src = url;
+    a.play().then(() => {
+      console.log('[TTS] ▶️ Đang phát, size:', blob.size, 'bytes');
+    }).catch((err) => {
+      console.error('[TTS] ❌ Play bị chặn:', err.message);
       resolve();
     });
   });
@@ -641,14 +663,15 @@ function initSpeechRecognition() {
 
 function toggleVoiceChat() {
   if (state.isLoading) return;
+  warmUpAudio(); // ← CRITICAL: unlock audio ngay trên user click mic
   if (state.isRecording) {
     clearTimeout(_silenceTimer);
     if (_recognition) _recognition.stop();
   } else {
     if (!_recognition) _recognition = initSpeechRecognition();
     if (!_recognition) return;
-    // Dừng audio đang phát (nếu có)
-    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
+    // Dừng audio đang phát
+    const a = getAudioEl(); a.pause();
     _fullTranscript = '';
     inputEl().value = '';
     try {
@@ -717,4 +740,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const inp = inputEl();
     if (inp) { inp.addEventListener('input', () => { autoResize(); toggleSendBtn(); }); inp.addEventListener('keydown', handleKeydown); toggleSendBtn(); }
   }, 600);
+
+  // Warm up audio trên BẤT KỲ click đầu tiên nào — cho Chrome + Safari
+  document.addEventListener('click', function _warmup() {
+    warmUpAudio();
+    document.removeEventListener('click', _warmup);
+    console.log('[Audio] 🔓 First click → audio unlocked for Chrome/Safari');
+  }, { once: true });
 });
