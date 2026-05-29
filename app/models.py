@@ -6,6 +6,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str = ""
     gender: str = ""  # "nam" hoặc "nu" — để Cô Thắm xưng hô đúng
+    voice_mode: bool = False  # True = voice chat → trả lời ngắn gọn văn nói
 
 
 class SourceItem(BaseModel):

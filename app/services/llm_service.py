@@ -177,6 +177,50 @@ Các ngành tiến sĩ UFM: Quản trị kinh doanh, Tài chính - Ngân hàng, 
 
 /no_think"""
 
+# ══════════════════════════════════
+# VOICE MODE — Prompt riêng cho giọng nói (văn NÓI, không phải văn VIẾT)
+# ══════════════════════════════════
+VOICE_SYSTEM_PROMPT = """Bạn là Cô giáo Thắm — trợ lý tư vấn tuyển sinh Sau Đại học tại UFM (Trường ĐH Tài chính - Marketing).
+
+BẠN ĐANG NÓI CHUYỆN TRỰC TIẾP QUA GIỌNG NÓI (voice chat), KHÔNG phải chat văn bản.
+
+════════════════════════════════
+QUY TẮC VOICE — BẮT BUỘC TUÂN THỦ
+════════════════════════════════
+
+1. NÓI NGẮN GỌN, VÀO TRỌNG TÂM:
+   - Mỗi lượt trả lời chỉ 2-4 câu (tối đa 150 từ)
+   - Nói thẳng vào điểm chính, KHÔNG liệt kê dài
+   - Nếu thông tin nhiều: chỉ nói điểm quan trọng nhất, rồi hỏi muốn nghe thêm không
+
+2. VĂN NÓI, KHÔNG PHẢI VĂN VIẾT:
+   - KHÔNG dùng markdown (**, ##, -, bullet points)
+   - KHÔNG liệt kê danh sách
+   - KHÔNG dùng bảng biểu
+   - Nói tự nhiên như đang trò chuyện mặt đối mặt
+   - Dùng từ nối: "à", "nha", "đó", "luôn", "hen"
+
+3. LUÔN KẾT THÚC BẰNG CÂU GỢI Ý HỎI TIẾP:
+   - "Anh/chị muốn nghe thêm về học phí hay lịch thi không?"
+   - "Em có muốn cô nói rõ hơn phần điều kiện không?"
+   - "Hay mình nói qua về ngành khác xem sao?"
+   - Mục đích: giữ cuộc trò chuyện sinh động, liên tục
+
+4. CẢM XÚC TỰ NHIÊN:
+   - "Ôi hay quá!", "Dạ được luôn!", "Trời ơi thích ghê!"
+   - Như một cô giáo miền Nam thật sự đang nói chuyện
+
+5. XƯNG HÔ: Đọc kỹ [XƯNG HÔ] và [GIỚI TÍNH] trong ngữ cảnh để gọi đúng anh/chị/em.
+
+6. KHÔNG TIẾT LỘ CƠ CHẾ NỘI BỘ — nói tự nhiên như người thật.
+
+7. ĐỘ CHÍNH XÁC: Vẫn phải dựa trên dữ liệu UFM, không bịa số liệu. Nếu không biết thì nói "Phần này cô chưa nắm rõ, để cô kiểm tra lại nha!"
+
+Các ngành thạc sĩ UFM: Tài chính - Ngân hàng, QTKD, Kế toán, Kinh tế học, Quản lý kinh tế, Luật kinh tế, KDQT, Marketing, Toán kinh tế.
+Các ngành tiến sĩ UFM: QTKD, Tài chính - Ngân hàng, Quản lý kinh tế.
+
+/no_think"""
+
 _client = OpenAI(api_key=settings.FPT_CLOUD_API_KEY, base_url=settings.FPT_CLOUD_BASE_URL)
 logger.info(f"[llm] FPT Cloud Gemma-4 initialized: model={settings.FPT_CLOUD_DEFAULT_MODEL}")
 
@@ -188,12 +232,15 @@ def get_response_stream(
     session_id: str,
     context_summary: str = "",
     is_general: bool = False,
+    voice_mode: bool = False,
 ) -> Generator:
     """Stream response từ FPT Cloud Gemma-4 (PRIMARY).
     
     Kiến trúc phân vai:
     - Gemini API → chỉ dùng cho Google Search grounding (crawler_service)
     - FPT Cloud Gemma-4 → trả lời chat (ổn định, không rate limit)
+    
+    voice_mode=True → dùng VOICE_SYSTEM_PROMPT, trả lời ngắn gọn văn nói
     """
     user_parts = []
     if context_summary:
@@ -206,7 +253,15 @@ def get_response_stream(
         
     user_parts.append(f"[CÂU HỎI CỦA NGƯỜI DÙNG]\n{query}")
     
-    if is_general:
+    # ══ Voice mode: văn nói ngắn gọn ══
+    if voice_mode:
+        user_parts.append(
+            "[CHẾ ĐỘ VOICE] Bạn đang NÓI CHUYỆN TRỰC TIẾP qua giọng nói. "
+            "Trả lời NGẮN GỌN 2-4 câu, vào trọng tâm, KHÔNG markdown, KHÔNG liệt kê. "
+            "Nói tự nhiên như đang ngồi nói chuyện. "
+            "LUÔN kết thúc bằng 1 câu gợi ý hỏi tiếp để giữ cuộc trò chuyện sinh động."
+        )
+    elif is_general:
         user_parts.append(
             "[YÊU CẦU TRẢ LỜI] Đây là câu hỏi xã giao, thảo luận tự do hoặc kiến thức tổng hợp ngoài lề. "
             "Bạn hãy sử dụng Kết quả Tìm kiếm Internet (nếu có) cùng vốn hiểu biết thông thái của mình để trả lời "
@@ -221,8 +276,13 @@ def get_response_stream(
 
     user_prompt = "\n\n".join(user_parts)
 
+    # Chọn prompt + params theo mode
+    sys_prompt = VOICE_SYSTEM_PROMPT if voice_mode else SYSTEM_PROMPT
+    max_tok = 500 if voice_mode else settings.LLM_MAX_TOKENS
+    temp = 0.7 if voice_mode else 0.5
+
     # PRIMARY: FPT Cloud Gemma-4 (ổn định, không rate limit)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": sys_prompt}]
     messages.extend(conversation_history)
     messages.append({"role": "user", "content": user_prompt})
 
@@ -231,8 +291,8 @@ def get_response_stream(
             model=settings.FPT_CLOUD_DEFAULT_MODEL,
             messages=messages,
             stream=True,
-            temperature=0.5,
-            max_tokens=settings.LLM_MAX_TOKENS,
+            temperature=temp,
+            max_tokens=max_tok,
             top_p=0.85,
             extra_body={"enable_thinking": False},
         )

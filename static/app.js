@@ -363,7 +363,7 @@ async function sendMessage(text, autoSpeak = false) {
 
   try {
     const resp = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text.trim(), session_id: state.sessionId, gender: state.guestProfile?.gender || '' }) });
+      body: JSON.stringify({ message: text.trim(), session_id: state.sessionId, gender: state.guestProfile?.gender || '', voice_mode: autoSpeak }) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
     hideTyping();
@@ -401,16 +401,31 @@ async function sendMessage(text, autoSpeak = false) {
       addSpeakButton(botEl, fullText);
     }
 
-    // ══ SMART CHUNKED TTS — gộp đoạn lớn, fetch song song, phát nối tiếp ══
+    // ══ SMART TTS — Voice mode: 1 request (ngắn), Text mode: chia chunks ══
     if (autoSpeak && state.ttsAvailable && fullText) {
       setOverlayState('speaking');
       debugTTS('🔊 Cô Thắm đang trả lời...');
 
-      // Tách text thành chunks ~300 chars tại ranh giới câu
-      const chunks = splitIntoChunks(fullText, 300);
-      console.log('[TTS] Chia thành', chunks.length, 'đoạn:', chunks.map(c => c.length + ' chars'));
+      // Strip markdown cho TTS
+      const cleanText = fullText
+        .replace(/\*\*|__|~~|`{1,3}/g, '')
+        .replace(/#{1,6}\s*/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+        .replace(/^[\s]*[-*•]\s+/gm, '')
+        .replace(/^[\s]*\d+\.\s+/gm, '')
+        .replace(/\|[^|]*\|/g, '')
+        .replace(/-{3,}/g, '')
+        .replace(/\n{2,}/g, '. ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-      // Fetch TẤT CẢ chunks song song → sẵn sàng khi cần
+      // Voice mode: text ngắn (~150 từ) → gửi 1 request, nhanh & mượt
+      // Text chat: text dài → chia chunks
+      const chunks = cleanText.length <= 500 ? [cleanText] : splitIntoChunks(fullText, 300);
+      console.log('[TTS] Mode:', cleanText.length <= 500 ? 'SINGLE' : 'CHUNKED', '| Chunks:', chunks.length);
+
+      // Fetch tất cả song song
       const blobPromises = chunks.map(chunk =>
         fetch('/api/tts/speak', {
           method: 'POST',
@@ -419,13 +434,13 @@ async function sendMessage(text, autoSpeak = false) {
         }).then(r => r.ok ? r.blob() : null).catch(() => null)
       );
 
-      // Phát nối tiếp — không gián đoạn vì đã pre-fetch
+      // Phát nối tiếp
       for (let i = 0; i < blobPromises.length; i++) {
-        if (_ttsCancelled) { console.log('[TTS] Cancelled, dừng phát'); break; }
+        if (_ttsCancelled) { console.log('[TTS] Cancelled'); break; }
         const blob = await blobPromises[i];
         if (_ttsCancelled) break;
         if (!blob || blob.size < 1000) continue;
-        debugTTS(`🔊 Đoạn ${i + 1}/${chunks.length}...`);
+        debugTTS(`🔊 ${chunks.length === 1 ? 'Đang nói...' : `Đoạn ${i + 1}/${chunks.length}...`}`);
         try {
           await playAudioBlob(blob);
         } catch(e) { if (!_ttsCancelled) console.error('[TTS] play error', e); }

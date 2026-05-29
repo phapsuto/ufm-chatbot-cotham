@@ -145,12 +145,13 @@ async def chat(req: ChatRequest):
     history = memory_service.get_conversation_history(session_id)
     
     elapsed = time.time() - t0
-    logger.info(f"[pipeline] prep={elapsed:.1f}s html={len(html_contents)} pdf={len(pdf_contents)} kb={len(kb_chunks)}")
+    voice_mode = req.voice_mode
+    logger.info(f"[pipeline] prep={elapsed:.1f}s html={len(html_contents)} pdf={len(pdf_contents)} kb={len(kb_chunks)} voice={voice_mode}")
 
-    # 7. Stream LLM response — pass context_summary for xưng hô + is_general
+    # 7. Stream LLM response — pass context_summary for xưng hô + is_general + voice_mode
     def generate():
         full_response = ""
-        for chunk in llm_service.get_response_stream(context, message, history, session_id, context_summary=mem_summary, is_general=is_general):
+        for chunk in llm_service.get_response_stream(context, message, history, session_id, context_summary=mem_summary, is_general=is_general, voice_mode=voice_mode):
             if chunk.startswith("__FULL__"):
                 full_response = chunk[8:]
                 continue
