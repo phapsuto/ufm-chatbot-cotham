@@ -352,6 +352,14 @@ async function sendMessage(text, autoSpeak = false) {
   state.isLoading = true; removeSuggestions();
   addUserBubble(text.trim()); inputEl().value = ''; autoResize(); toggleSendBtn(); showTyping();
 
+  // Voice mode: cập nhật overlay
+  if (autoSpeak) {
+    setOverlayState('processing');
+    setOverlayStatus('✨ Cô Thắm đang suy nghĩ...');
+  }
+
+  let ttsPromise = null; // Prefetch TTS sớm
+
   try {
     const resp = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text.trim(), session_id: state.sessionId }) });
@@ -362,6 +370,7 @@ async function sendMessage(text, autoSpeak = false) {
     const contentEl = botEl.querySelector('.bot-message-content');
     const reader = resp.body.getReader(); const decoder = new TextDecoder();
     let fullText = '', metadata = null, buffer = '';
+    let ttsStarted = false;
 
     while (true) {
       const { done, value } = await reader.read(); if (done) break;
@@ -375,6 +384,15 @@ async function sendMessage(text, autoSpeak = false) {
           else if (data.content) { fullText += data.content; contentEl.innerHTML = renderMd(fullText); scrollBottom(); }
         } catch(e) {}
       }
+      // Prefetch TTS sớm: sau khi có >= 50 ký tự, gửi TTS request song song
+      if (autoSpeak && !ttsStarted && fullText.length >= 50) {
+        ttsStarted = true;
+        // Gửi request TTS ngay, không đợi stream xong
+        ttsPromise = fetch('/api/tts/speak', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: fullText }),
+        }).catch(() => null);
+      }
     }
     if (buffer.startsWith('data: ') && buffer !== 'data: [DONE]') {
       try { const data = JSON.parse(buffer.slice(6)); if (data.done) metadata = data; } catch(e) {}
@@ -387,12 +405,26 @@ async function sendMessage(text, autoSpeak = false) {
       if (metadata.action === 'start_enrollment') startEnrollment();
       if (metadata.co_tham_xung) state.coThamXung = metadata.co_tham_xung;
     }
-    // Thêm nút 🔊 TTS nếu có text
+    // Thêm nút 🔊 TTS
     if (fullText && state.ttsAvailable) {
       addSpeakButton(botEl, fullText);
-      // Voice mode: tự động phát giọng nói
+      // Voice mode: phát giọng nói
       if (autoSpeak) {
-        autoPlayTTS(fullText);
+        // Nếu đã prefetch → dùng response sẵn, nếu chưa → gọi mới
+        if (ttsPromise) {
+          const ttsResp = await ttsPromise;
+          if (ttsResp && ttsResp.ok) {
+            setOverlayState('speaking');
+            setOverlayStatus('🔊 Cô Thắm đang trả lời...');
+            const blob = await ttsResp.blob();
+            await playAudioBlob(blob, () => { hideVoiceOverlay(); clearVoiceStatus(); });
+          } else {
+            // Prefetch thất bại, gọi lại
+            autoPlayTTS(fullText);
+          }
+        } else {
+          autoPlayTTS(fullText);
+        }
       }
     }
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
@@ -454,45 +486,59 @@ async function checkTTSAvailability() {
   } catch(e) { state.ttsAvailable = false; }
 }
 // ── AudioContext để bypass Chrome autoplay policy ──
-let _audioCtx = null;
-function getAudioCtx() {
-  if (!_audioCtx || _audioCtx.state === 'closed') {
-    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (_audioCtx.state === 'suspended') _audioCtx.resume();
-  return _audioCtx;
-}
-
-// Unlock audio trên user gesture (gọi khi bấm mic)
+// Unlock audio — gọi trên user gesture (click mic/speak)
 function unlockAudio() {
-  const ctx = getAudioCtx();
-  if (ctx.state === 'suspended') ctx.resume();
-  // Tạo silent buffer để unlock
-  const buf = ctx.createBuffer(1, 1, 22050);
-  const src = ctx.createBufferSource();
-  src.buffer = buf; src.connect(ctx.destination); src.start(0);
+  // Tạo Audio element silent để unlock autoplay
+  try {
+    const a = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+    a.volume = 0;
+    a.play().then(() => a.pause()).catch(() => {});
+  } catch(e) {}
 }
 
-// Phát audio WAV từ blob qua AudioContext (không bị block)
-async function playAudioBlob(blob, onEnd) {
-  const ctx = getAudioCtx();
-  const arrayBuf = await blob.arrayBuffer();
-  const audioBuf = await ctx.decodeAudioData(arrayBuf);
-  
-  // Dừng audio trước đó
-  if (state.currentAudioSource) {
-    try { state.currentAudioSource.stop(); } catch(e) {}
-  }
-  
-  const source = ctx.createBufferSource();
-  source.buffer = audioBuf;
-  source.connect(ctx.destination);
-  source.onended = () => {
-    state.currentAudioSource = null;
-    if (onEnd) onEnd();
-  };
-  source.start(0);
-  state.currentAudioSource = source;
+// Phát audio từ blob — dùng Audio element đơn giản, đáng tin cậy
+function playAudioBlob(blob, onEnd) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    
+    // Dừng audio trước đó
+    if (state.currentAudio) {
+      state.currentAudio.pause();
+      state.currentAudio = null;
+    }
+
+    const audio = new Audio();
+    audio.volume = 1.0;
+    audio.preload = 'auto';
+    state.currentAudio = audio;
+
+    audio.oncanplaythrough = () => {
+      console.log('[TTS] Audio ready, playing...');
+      audio.play().catch(err => {
+        console.error('[TTS] Play failed:', err);
+        URL.revokeObjectURL(url);
+        if (onEnd) onEnd();
+        reject(err);
+      });
+    };
+    audio.onended = () => {
+      console.log('[TTS] Audio finished');
+      state.currentAudio = null;
+      URL.revokeObjectURL(url);
+      if (onEnd) onEnd();
+      resolve();
+    };
+    audio.onerror = (e) => {
+      console.error('[TTS] Audio error:', e);
+      state.currentAudio = null;
+      URL.revokeObjectURL(url);
+      if (onEnd) onEnd();
+      reject(e);
+    };
+
+    audio.src = url;
+    audio.load();
+  });
 }
 
 // Auto-play TTS cho voice mode

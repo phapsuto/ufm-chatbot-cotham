@@ -369,12 +369,12 @@ body {
 .voice-overlay.listening .voice-orb {
   animation: orb-listen 0.8s ease-in-out infinite;
   background: radial-gradient(circle at 35% 35%,
-    rgba(255,100,100,0.9) 0%,
-    rgba(240,60,60,0.8) 30%,
-    rgba(200,30,30,0.7) 60%,
-    rgba(140,10,10,0.6) 100%
+    rgba(255,150,200,0.95) 0%,
+    rgba(240,100,170,0.85) 30%,
+    rgba(220,60,140,0.75) 60%,
+    rgba(180,30,100,0.65) 100%
   );
-  box-shadow: 0 0 60px rgba(255,80,80,0.5), 0 0 120px rgba(255,80,80,0.2);
+  box-shadow: 0 0 60px rgba(255,130,190,0.5), 0 0 120px rgba(255,130,190,0.25);
 }
 @keyframes orb-listen {
   0%, 100% { transform: scale(1); }
@@ -382,7 +382,7 @@ body {
   60% { transform: scale(0.95); }
 }
 .voice-overlay.listening .voice-ring {
-  border-color: rgba(255,100,100,0.2);
+  border-color: rgba(255,150,200,0.2);
   animation: voice-ring-listen 1s ease-in-out infinite;
 }
 @keyframes voice-ring-listen {
