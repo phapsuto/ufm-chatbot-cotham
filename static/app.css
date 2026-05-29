@@ -293,6 +293,193 @@ body {
 .voice-status.listening { color: #ef4444; font-weight: 500; }
 .voice-status.processing { color: var(--color-gold); }
 
+/* ═══════════════════════════════════ */
+/* VOICE OVERLAY — Gemini-style       */
+/* ═══════════════════════════════════ */
+.voice-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: radial-gradient(ellipse at center, rgba(0,20,60,0.97) 0%, rgba(0,8,30,0.99) 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.voice-overlay.active { opacity: 1; pointer-events: all; }
+
+/* Orb Container */
+.voice-orb-wrap {
+  position: relative; width: 200px; height: 200px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Outer rings */
+.voice-ring {
+  position: absolute; border-radius: 50%; border: 2px solid;
+  animation: voice-ring-pulse 2.5s ease-in-out infinite;
+}
+.voice-ring:nth-child(1) {
+  width: 200px; height: 200px; border-color: rgba(100,180,255,0.15);
+  animation-delay: 0s;
+}
+.voice-ring:nth-child(2) {
+  width: 260px; height: 260px; border-color: rgba(100,180,255,0.08);
+  animation-delay: 0.5s;
+}
+.voice-ring:nth-child(3) {
+  width: 320px; height: 320px; border-color: rgba(100,180,255,0.04);
+  animation-delay: 1s;
+}
+@keyframes voice-ring-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+/* Core Orb */
+.voice-orb {
+  width: 120px; height: 120px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%,
+    rgba(120,200,255,0.9) 0%,
+    rgba(60,140,240,0.8) 30%,
+    rgba(30,80,200,0.7) 60%,
+    rgba(10,40,140,0.6) 100%
+  );
+  box-shadow:
+    0 0 40px rgba(60,140,255,0.4),
+    0 0 80px rgba(60,140,255,0.2),
+    inset 0 -20px 40px rgba(0,0,0,0.3);
+  animation: orb-breathe 2s ease-in-out infinite;
+  position: relative; z-index: 2;
+}
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 40px rgba(60,140,255,0.4), 0 0 80px rgba(60,140,255,0.2); }
+  50% { transform: scale(1.05); box-shadow: 0 0 60px rgba(60,140,255,0.6), 0 0 120px rgba(60,140,255,0.3); }
+}
+
+/* Orb shimmer */
+.voice-orb::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, transparent 50%);
+  animation: orb-shimmer 3s linear infinite;
+}
+@keyframes orb-shimmer {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Listening state — active pulse */
+.voice-overlay.listening .voice-orb {
+  animation: orb-listen 0.8s ease-in-out infinite;
+  background: radial-gradient(circle at 35% 35%,
+    rgba(255,100,100,0.9) 0%,
+    rgba(240,60,60,0.8) 30%,
+    rgba(200,30,30,0.7) 60%,
+    rgba(140,10,10,0.6) 100%
+  );
+  box-shadow: 0 0 60px rgba(255,80,80,0.5), 0 0 120px rgba(255,80,80,0.2);
+}
+@keyframes orb-listen {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(1.15); }
+  60% { transform: scale(0.95); }
+}
+.voice-overlay.listening .voice-ring {
+  border-color: rgba(255,100,100,0.2);
+  animation: voice-ring-listen 1s ease-in-out infinite;
+}
+@keyframes voice-ring-listen {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.12); opacity: 0.8; }
+}
+
+/* Processing state — spinning */
+.voice-overlay.processing .voice-orb {
+  animation: orb-process 1.5s linear infinite;
+  background: radial-gradient(circle at 35% 35%,
+    rgba(255,200,60,0.9) 0%,
+    rgba(240,160,30,0.8) 30%,
+    rgba(200,120,10,0.7) 60%,
+    rgba(160,80,0,0.6) 100%
+  );
+  box-shadow: 0 0 60px rgba(255,180,60,0.5), 0 0 120px rgba(255,180,60,0.2);
+}
+@keyframes orb-process {
+  0% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.08) rotate(180deg); }
+  100% { transform: scale(1) rotate(360deg); }
+}
+.voice-overlay.processing .voice-ring {
+  border-color: rgba(255,180,60,0.2);
+  animation: voice-ring-process 1.2s linear infinite;
+}
+@keyframes voice-ring-process {
+  0% { transform: rotate(0deg) scale(1); }
+  100% { transform: rotate(360deg) scale(1.05); }
+}
+
+/* Speaking state — calm wave */
+.voice-overlay.speaking .voice-orb {
+  animation: orb-speak 1.2s ease-in-out infinite;
+  background: radial-gradient(circle at 35% 35%,
+    rgba(100,230,180,0.9) 0%,
+    rgba(50,200,140,0.8) 30%,
+    rgba(20,160,100,0.7) 60%,
+    rgba(0,120,70,0.6) 100%
+  );
+  box-shadow: 0 0 60px rgba(50,200,140,0.5), 0 0 120px rgba(50,200,140,0.2);
+}
+@keyframes orb-speak {
+  0%, 100% { transform: scale(1) translateY(0); }
+  25% { transform: scale(1.03) translateY(-3px); }
+  75% { transform: scale(0.97) translateY(3px); }
+}
+.voice-overlay.speaking .voice-ring {
+  border-color: rgba(100,230,180,0.15);
+}
+
+/* Voice overlay text */
+.voice-overlay-status {
+  margin-top: 48px; font-size: 16px; font-weight: 500;
+  color: rgba(255,255,255,0.8); letter-spacing: 0.5px;
+  text-align: center; max-width: 300px;
+}
+.voice-overlay-transcript {
+  margin-top: 16px; font-size: 14px;
+  color: rgba(255,255,255,0.5); text-align: center;
+  max-width: 320px; min-height: 20px;
+  font-style: italic;
+}
+
+/* Stop button */
+.voice-stop-btn {
+  margin-top: 40px; width: 56px; height: 56px;
+  border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.1); backdrop-filter: blur(10px);
+  color: #fff; font-size: 22px; cursor: pointer;
+  transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+}
+.voice-stop-btn:hover {
+  background: rgba(255,80,80,0.3); border-color: rgba(255,80,80,0.6);
+  transform: scale(1.1);
+}
+
+/* Waveform bars (listening) */
+.voice-bars {
+  display: flex; gap: 3px; align-items: center;
+  position: absolute; bottom: -40px; left: 50%; transform: translateX(-50%);
+}
+.voice-bars span {
+  width: 3px; background: rgba(255,255,255,0.5); border-radius: 2px;
+  animation: bar-wave 0.8s ease-in-out infinite;
+}
+.voice-bars span:nth-child(1) { height: 12px; animation-delay: 0s; }
+.voice-bars span:nth-child(2) { height: 20px; animation-delay: 0.1s; }
+.voice-bars span:nth-child(3) { height: 28px; animation-delay: 0.2s; }
+.voice-bars span:nth-child(4) { height: 20px; animation-delay: 0.3s; }
+.voice-bars span:nth-child(5) { height: 12px; animation-delay: 0.4s; }
+@keyframes bar-wave {
+  0%, 100% { transform: scaleY(0.5); opacity: 0.4; }
+  50% { transform: scaleY(1.2); opacity: 1; }
+}
+
 /* Handoff */
 .handoff-card { background: var(--color-bot-bubble); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 20px; margin-left: 42px; max-width: 400px; box-shadow: 0 4px 20px var(--color-shadow); animation: fadeIn 0.3s; }
 .handoff-card h3 { color: var(--color-primary); font-size: 15px; margin-bottom: 4px; }

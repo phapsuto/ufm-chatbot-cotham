@@ -391,8 +391,7 @@ async function sendMessage(text, autoSpeak = false) {
       addSpeakButton(botEl, fullText);
       // Voice mode: tự động phát giọng nói
       if (autoSpeak) {
-        const speakBtn = botEl.querySelector('.speak-btn');
-        if (speakBtn) speakText(speakBtn, fullText);
+        autoPlayTTS(fullText);
       }
     }
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
@@ -400,6 +399,7 @@ async function sendMessage(text, autoSpeak = false) {
     hideTyping();
     const errEl = addBotBubble();
     errEl.querySelector('.bot-message-content').textContent = 'Dạ xin lỗi, có lỗi kết nối. Bạn thử lại nhé 🙏';
+    hideVoiceOverlay();
   }
   state.isLoading = false; toggleSendBtn();
 }
@@ -457,6 +457,50 @@ async function checkTTSAvailability() {
   } catch(e) { state.ttsAvailable = false; }
 }
 
+// Auto-play TTS cho voice mode (không cần button)
+async function autoPlayTTS(text) {
+  try {
+    // Chuyển overlay sang speaking
+    setOverlayState('speaking');
+    setOverlayStatus('🔊 Cô Thắm đang trả lời...');
+    setOverlayTranscript('');
+
+    const resp = await fetch('/api/tts/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!resp.ok) throw new Error('TTS error ' + resp.status);
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+
+    // Dừng audio trước đó
+    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
+
+    const audio = new Audio(url);
+    state.currentAudio = audio;
+
+    audio.onended = () => {
+      state.currentAudio = null;
+      URL.revokeObjectURL(url);
+      hideVoiceOverlay();
+      clearVoiceStatus();
+    };
+    audio.onerror = () => {
+      console.error('[TTS] Audio playback error');
+      hideVoiceOverlay();
+      clearVoiceStatus();
+    };
+
+    await audio.play();
+  } catch(e) {
+    console.error('[TTS auto-play]', e);
+    hideVoiceOverlay();
+    clearVoiceStatus();
+  }
+}
+
 // ══════════════════════════════════
 // VOICE CHAT — Nói chuyện trực tiếp với Cô Thắm
 // ══════════════════════════════════
@@ -464,6 +508,31 @@ let _recognition = null;
 let _silenceTimer = null;
 let _fullTranscript = '';
 const SILENCE_TIMEOUT = 2500; // 2.5 giây im lặng → gửi
+
+// --- Overlay helpers ---
+function showVoiceOverlay() {
+  const el = $('#voice-overlay');
+  if (el) { el.classList.add('active'); setOverlayState('listening'); }
+}
+function hideVoiceOverlay() {
+  const el = $('#voice-overlay');
+  if (el) { el.classList.remove('active', 'listening', 'processing', 'speaking'); }
+  setOverlayTranscript('');
+}
+function setOverlayState(state) {
+  const el = $('#voice-overlay');
+  if (!el) return;
+  el.classList.remove('listening', 'processing', 'speaking');
+  if (state) el.classList.add(state);
+}
+function setOverlayStatus(text) {
+  const el = $('#voice-overlay-status');
+  if (el) el.textContent = text;
+}
+function setOverlayTranscript(text) {
+  const el = $('#voice-overlay-transcript');
+  if (el) el.textContent = text ? `"${text}"` : '';
+}
 
 function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -475,8 +544,8 @@ function initSpeechRecognition() {
   }
   const recognition = new SpeechRecognition();
   recognition.lang = 'vi-VN';
-  recognition.continuous = true;       // KHÔNG dừng sau câu đầu
-  recognition.interimResults = true;    // Hiển thị realtime
+  recognition.continuous = true;
+  recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
   recognition.onstart = () => {
@@ -484,11 +553,12 @@ function initSpeechRecognition() {
     _fullTranscript = '';
     $('#mic-btn').classList.add('recording');
     $('#mic-btn').innerHTML = '⏹';
-    setVoiceStatus('🎤 Đang nghe... Nói tự nhiên, Cô Thắm sẽ đợi bạn nói xong', 'listening');
+    showVoiceOverlay();
+    setOverlayStatus('🎤 Đang nghe... Nói tự nhiên nhé');
+    setVoiceStatus('🎤 Đang nghe...', 'listening');
   };
 
   recognition.onresult = (event) => {
-    // Ghép tất cả final + interim results thành transcript đầy đủ
     let finalText = '';
     let interimText = '';
     for (let i = 0; i < event.results.length; i++) {
@@ -499,17 +569,17 @@ function initSpeechRecognition() {
       }
     }
     const displayText = finalText + interimText;
-    _fullTranscript = finalText; // Lưu phần đã xác nhận
+    _fullTranscript = finalText;
 
-    // Hiển thị realtime trong ô input
+    // Hiển thị trên cả input + overlay
     inputEl().value = displayText;
     autoResize();
+    setOverlayTranscript(displayText);
 
-    // Reset silence timer mỗi khi có kết quả mới
+    // Reset silence timer
     clearTimeout(_silenceTimer);
     if (_fullTranscript.trim() || interimText.trim()) {
       _silenceTimer = setTimeout(() => {
-        // 2.5 giây không có âm thanh mới → dừng và gửi
         if (_recognition && state.isRecording) {
           _recognition.stop();
         }
@@ -521,11 +591,13 @@ function initSpeechRecognition() {
     console.error('[Voice] Error:', event.error);
     clearTimeout(_silenceTimer);
     if (event.error === 'not-allowed') {
-      setVoiceStatus('❌ Vui lòng cho phép sử dụng microphone', 'listening');
+      setOverlayStatus('❌ Vui lòng cho phép microphone');
       stopRecording();
+      setTimeout(hideVoiceOverlay, 2000);
     } else if (event.error === 'no-speech') {
-      setVoiceStatus('😶 Không nghe thấy gì, bấm 🎤 để thử lại', '');
+      setOverlayStatus('😶 Không nghe thấy gì, thử lại nhé');
       stopRecording();
+      setTimeout(hideVoiceOverlay, 2000);
     } else if (event.error !== 'aborted') {
       setVoiceStatus('⚠️ Lỗi nhận diện giọng nói', '');
       stopRecording();

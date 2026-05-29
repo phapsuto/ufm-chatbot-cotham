@@ -197,6 +197,22 @@
     </div>
   </div>
 
+  <!-- Voice Chat Overlay — Gemini-style -->
+  <div class="voice-overlay" id="voice-overlay">
+    <div class="voice-orb-wrap">
+      <div class="voice-ring"></div>
+      <div class="voice-ring"></div>
+      <div class="voice-ring"></div>
+      <div class="voice-orb"></div>
+      <div class="voice-bars">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="voice-overlay-status" id="voice-overlay-status">🎤 Đang nghe...</div>
+    <div class="voice-overlay-transcript" id="voice-overlay-transcript"></div>
+    <button class="voice-stop-btn" id="voice-stop-btn" onclick="toggleVoiceChat()">✕</button>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
   <script src="/static/app.js"></script>
