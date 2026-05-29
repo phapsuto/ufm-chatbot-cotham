@@ -9,6 +9,7 @@ const state = {
   coThamXung: null, // "cô" hoặc "em" — xác định từ vai vế user
   ttsAvailable: false, // TTS sidecar có sẵn không
   currentAudio: null, // Audio đang phát (nếu có)
+  isRecording: false, // Đang ghi âm voice chat
 };
 
 const $ = (s) => document.querySelector(s);
@@ -139,6 +140,8 @@ function addBotGreeting(text) {
   hideWelcome();
   const botEl = addBotBubble();
   botEl.querySelector('.bot-message-content').innerHTML = renderMd(text);
+  // Thêm nút 🔊 cho greeting
+  if (state.ttsAvailable) addSpeakButton(botEl, text);
   renderSuggestions(['Trường có những ngành thạc sĩ nào?', 'Học phí chương trình thạc sĩ?', 'Điều kiện đầu vào thạc sĩ?']);
   scrollBottom();
 }
@@ -343,7 +346,7 @@ async function submitHandoff() {
 // ══════════════════════════════════
 // SEND MESSAGE
 // ══════════════════════════════════
-async function sendMessage(text) {
+async function sendMessage(text, autoSpeak = false) {
   if (state.isLoading || !text.trim()) return;
   state.isLoading = true; removeSuggestions();
   addUserBubble(text.trim()); inputEl().value = ''; autoResize(); toggleSendBtn(); showTyping();
@@ -381,11 +384,17 @@ async function sendMessage(text) {
       renderSuggestions(metadata.suggestions);
       if (metadata.requires_handoff) showHandoffForm();
       if (metadata.action === 'start_enrollment') startEnrollment();
-      // Lưu ngôi xưng để typing message lần sau dùng đúng
       if (metadata.co_tham_xung) state.coThamXung = metadata.co_tham_xung;
     }
     // Thêm nút 🔊 TTS nếu có text
-    if (fullText && state.ttsAvailable) addSpeakButton(botEl, fullText);
+    if (fullText && state.ttsAvailable) {
+      addSpeakButton(botEl, fullText);
+      // Voice mode: tự động phát giọng nói
+      if (autoSpeak) {
+        const speakBtn = botEl.querySelector('.speak-btn');
+        if (speakBtn) speakText(speakBtn, fullText);
+      }
+    }
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
   } catch(e) {
     hideTyping();
@@ -449,6 +458,112 @@ async function checkTTSAvailability() {
 }
 
 // ══════════════════════════════════
+// VOICE CHAT — Nói chuyện trực tiếp với Cô Thắm
+// ══════════════════════════════════
+let _recognition = null;
+
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn('[Voice] Speech Recognition không được hỗ trợ trên trình duyệt này');
+    const micBtn = $('#mic-btn');
+    if (micBtn) { micBtn.disabled = true; micBtn.title = 'Trình duyệt không hỗ trợ giọng nói'; }
+    return null;
+  }
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'vi-VN';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    state.isRecording = true;
+    $('#mic-btn').classList.add('recording');
+    $('#mic-btn').innerHTML = '⏹';
+    setVoiceStatus('🎤 Đang nghe... Hãy nói câu hỏi của bạn', 'listening');
+  };
+
+  recognition.onresult = (event) => {
+    let transcript = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      transcript += event.results[i][0].transcript;
+    }
+    // Hiển thị realtime trong ô input
+    inputEl().value = transcript;
+    autoResize();
+
+    // Nếu kết quả final → gửi luôn
+    if (event.results[event.results.length - 1].isFinal && transcript.trim()) {
+      setVoiceStatus('✨ Đang gửi cho Cô Thắm...', 'processing');
+      setTimeout(() => {
+        sendMessage(transcript.trim(), true); // autoSpeak = true
+        inputEl().value = '';
+        autoResize();
+        clearVoiceStatus();
+      }, 300);
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.error('[Voice] Error:', event.error);
+    stopRecording();
+    if (event.error === 'not-allowed') {
+      setVoiceStatus('❌ Vui lòng cho phép sử dụng microphone', 'listening');
+    } else if (event.error === 'no-speech') {
+      setVoiceStatus('😶 Không nghe thấy gì, thử lại nhé', '');
+    } else {
+      setVoiceStatus('⚠️ Lỗi nhận diện giọng nói', '');
+    }
+    setTimeout(clearVoiceStatus, 3000);
+  };
+
+  recognition.onend = () => {
+    stopRecording();
+  };
+
+  return recognition;
+}
+
+function toggleVoiceChat() {
+  if (state.isLoading) return;
+  if (state.isRecording) {
+    // Dừng ghi âm
+    if (_recognition) _recognition.stop();
+    stopRecording();
+  } else {
+    // Bắt đầu ghi âm
+    if (!_recognition) _recognition = initSpeechRecognition();
+    if (!_recognition) return;
+    try {
+      _recognition.start();
+    } catch(e) {
+      // Đang chạy rồi, stop rồi start lại
+      _recognition.stop();
+      setTimeout(() => _recognition.start(), 200);
+    }
+  }
+}
+
+function stopRecording() {
+  state.isRecording = false;
+  const micBtn = $('#mic-btn');
+  if (micBtn) {
+    micBtn.classList.remove('recording');
+    micBtn.innerHTML = '🎤';
+  }
+}
+
+function setVoiceStatus(text, cls) {
+  const el = $('#voice-status');
+  if (el) { el.textContent = text; el.className = 'voice-status ' + (cls || ''); }
+}
+
+function clearVoiceStatus() {
+  const el = $('#voice-status');
+  if (el) { el.textContent = ''; el.className = 'voice-status'; }
+}
+
+// ══════════════════════════════════
 // INPUT & SIDEBAR
 // ══════════════════════════════════
 function autoResize() { const el = inputEl(); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 100) + 'px'; }
@@ -470,7 +585,10 @@ function clearChat() {
 // ══════════════════════════════════
 // INIT
 // ══════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Kiểm tra TTS sidecar TRƯỚC khi hiển thị greeting
+  await checkTTSAvailability();
+
   const savedSession = sessionStorage.getItem('ufm_session');
   const savedProfile = sessionStorage.getItem('ufm_profile');
   if (savedSession && savedProfile) {
@@ -483,6 +601,4 @@ document.addEventListener('DOMContentLoaded', () => {
     const inp = inputEl();
     if (inp) { inp.addEventListener('input', () => { autoResize(); toggleSendBtn(); }); inp.addEventListener('keydown', handleKeydown); toggleSendBtn(); }
   }, 600);
-  // Kiểm tra TTS sidecar
-  checkTTSAvailability();
 });

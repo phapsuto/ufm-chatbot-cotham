@@ -188,8 +188,10 @@
         <div class="input-area">
           <div class="input-wrapper">
             <textarea id="msg-input" rows="1" placeholder="Bạn muốn hỏi gì về sau đại học UFM ạ?"></textarea>
+            <button class="mic-btn" id="mic-btn" onclick="toggleVoiceChat()" title="Nhấn để nói chuyện với Cô Thắm">🎤</button>
             <button class="send-btn" id="send-btn" onclick="sendMessage(document.getElementById('msg-input').value)" disabled>➤</button>
           </div>
+          <div class="voice-status" id="voice-status"></div>
         </div>
       </main>
     </div>
