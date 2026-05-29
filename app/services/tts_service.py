@@ -22,7 +22,7 @@ logger = logging.getLogger("ufm-chatbot")
 # ── Config ─────────────────────────────────────────────────
 TTS_BASE_URL = getattr(settings, "TTS_BASE_URL", "http://localhost:23333")
 TTS_TIMEOUT = 60.0
-TTS_MAX_CHARS = 300  # Nói chuyện trực tiếp → ngắn gọn, nhanh
+# Mỗi câu gửi riêng → không cần truncate
 
 # Shared HTTP client (connection pooling)
 _client: httpx.AsyncClient | None = None
@@ -53,18 +53,6 @@ async def synthesize(text: str) -> bytes | None:
     clean_text = _strip_markdown(text)
     if not clean_text:
         return None
-
-    # Truncate text dài → chỉ đọc phần đầu (tránh TTS timeout)
-    if len(clean_text) > TTS_MAX_CHARS:
-        # Cắt tại câu gần nhất
-        truncated = clean_text[:TTS_MAX_CHARS]
-        # Tìm dấu chấm cuối cùng
-        last_period = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'), truncated.rfind('。'))
-        if last_period > TTS_MAX_CHARS // 2:
-            clean_text = truncated[:last_period + 1]
-        else:
-            clean_text = truncated + '...'
-        logger.info(f"[tts] ✂️ Truncated: {len(text)} → {len(clean_text)} chars")
 
     try:
         client = _get_client()

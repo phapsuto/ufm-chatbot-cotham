@@ -356,6 +356,56 @@ async function sendMessage(text, autoSpeak = false) {
     setOverlayStatus('Chờ cô Thắm một xíu nha 💭');
   }
 
+  // ── Chunked TTS: tách câu, gửi TTS song song, phát nối tiếp ──
+  let _ttsBlobQueue = [];      // Queue audio blob promises
+  let _ttsPlaying = false;     // Đang phát audio?
+  let _sentenceBuffer = '';    // Buffer tích lũy text chờ tách câu
+  let _ttsOverlayShown = false;
+
+  // Gửi 1 câu tới TTS, trả promise → blob
+  function fetchSentenceTTS(sentence) {
+    console.log('[TTS-chunk] Gửi câu:', sentence.substring(0, 50) + '...');
+    return fetch('/api/tts/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: sentence }),
+    }).then(r => r.ok ? r.blob() : null).catch(() => null);
+  }
+
+  // Player: lấy blob từ queue, phát lần lượt
+  async function drainTTSQueue() {
+    if (_ttsPlaying) return;
+    _ttsPlaying = true;
+    while (_ttsBlobQueue.length > 0) {
+      const blobPromise = _ttsBlobQueue.shift();
+      const blob = await blobPromise;
+      if (!blob || blob.size < 1000) continue; // Skip lỗi/rỗng
+      // Hiện speaking overlay khi phát audio đầu tiên
+      if (!_ttsOverlayShown) {
+        setOverlayState('speaking');
+        debugTTS('🔊 Cô Thắm đang trả lời...');
+        _ttsOverlayShown = true;
+      }
+      try {
+        await playAudioBlob(blob);
+      } catch(e) { console.error('[TTS-chunk] play error', e); }
+    }
+    _ttsPlaying = false;
+  }
+
+  // Tách câu từ buffer — trả [câu_hoàn_chỉnh, buffer_còn_lại]
+  function extractSentences(buf) {
+    const sentences = [];
+    // Tách tại dấu . ! ? hoặc xuống dòng
+    const re = /[^.!?\n]+[.!?\n]+\s*/g;
+    let match, lastIdx = 0;
+    while ((match = re.exec(buf)) !== null) {
+      sentences.push(match[0].trim());
+      lastIdx = re.lastIndex;
+    }
+    return [sentences, buf.slice(lastIdx)];
+  }
+
   try {
     const resp = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text.trim(), session_id: state.sessionId }) });
@@ -376,12 +426,35 @@ async function sendMessage(text, autoSpeak = false) {
         try {
           const data = JSON.parse(line.slice(6));
           if (data.done) metadata = data;
-          else if (data.content) { fullText += data.content; contentEl.innerHTML = renderMd(fullText); scrollBottom(); }
+          else if (data.content) {
+            fullText += data.content;
+            contentEl.innerHTML = renderMd(fullText);
+            scrollBottom();
+
+            // ── Chunked TTS: tách câu ngay khi stream ──
+            if (autoSpeak && state.ttsAvailable) {
+              _sentenceBuffer += data.content;
+              const [sentences, remaining] = extractSentences(_sentenceBuffer);
+              _sentenceBuffer = remaining;
+              for (const sent of sentences) {
+                if (sent.length > 5) { // Bỏ qua câu quá ngắn
+                  _ttsBlobQueue.push(fetchSentenceTTS(sent));
+                  drainTTSQueue(); // Bắt đầu phát nếu chưa
+                }
+              }
+            }
+          }
         } catch(e) {}
       }
     }
     if (buffer.startsWith('data: ') && buffer !== 'data: [DONE]') {
       try { const data = JSON.parse(buffer.slice(6)); if (data.done) metadata = data; } catch(e) {}
+    }
+
+    // ── Gửi phần text còn lại trong buffer ──
+    if (autoSpeak && state.ttsAvailable && _sentenceBuffer.trim().length > 5) {
+      _ttsBlobQueue.push(fetchSentenceTTS(_sentenceBuffer.trim()));
+      drainTTSQueue();
     }
 
     if (metadata) {
@@ -394,11 +467,18 @@ async function sendMessage(text, autoSpeak = false) {
     // Thêm nút 🔊 TTS
     if (fullText && state.ttsAvailable) {
       addSpeakButton(botEl, fullText);
-      // Voice mode: gọi TTS với FULL TEXT
-      if (autoSpeak) {
-        await autoPlayTTS(fullText);
-      }
     }
+
+    // ── Đợi TTS queue phát xong rồi mới tắt overlay ──
+    if (autoSpeak) {
+      // Đợi tất cả blob promises resolve
+      while (_ttsBlobQueue.length > 0 || _ttsPlaying) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+      hideVoiceOverlay();
+      clearVoiceStatus();
+    }
+
     if (!fullText && !metadata) contentEl.textContent = 'Dạ xin lỗi, cô chưa nhận được phản hồi. Bạn thử lại nhé 🙏';
   } catch(e) {
     hideTyping();
