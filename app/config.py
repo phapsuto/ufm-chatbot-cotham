@@ -26,9 +26,9 @@ class Settings(BaseSettings):
     # CRM
     CRM_DASHBOARD_PASSWORD: str = "ufm_crm_2026"
     CRM_SESSION_SECRET: str = "ufm-crm-secret-key"
-    # TTS (VieNeu-TTS Sidecar)
-    TTS_BASE_URL: str = "http://localhost:23333"
-    TTS_TIMEOUT: float = 30.0
+    # TTS — FPT Cloud VITS (primary), VieNeu Sidecar (fallback)
+    TTS_BASE_URL: str = "http://localhost:23333"  # VieNeu fallback
+    TTS_TIMEOUT: float = 15.0  # FPT Cloud timeout
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

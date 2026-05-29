@@ -437,7 +437,7 @@ async function sendMessage(text, autoSpeak = false) {
       if (!autoSpeak || !state.ttsAvailable || _ttsCancelled) return;
       const clean = stripMarkdown(sentence);
       if (clean.length < 5) return;
-      console.log(`[TTS-stream] ⚡ Câu ${ttsQueue.length + 1}: "${clean.slice(0, 50)}..."`);
+
       ttsQueue.push({ promise: fetchTTSBlob(clean), text: clean });
       // Bắt đầu phát nếu chưa chạy
       drainTTSQueue();
@@ -577,56 +577,7 @@ async function checkTTSAvailability() {
     state.ttsAvailable = data.tts_available === true;
   } catch(e) { state.ttsAvailable = false; }
 }
-// ══════════════════════════════════
-// TEXT SPLITTING — Chia text thành chunks cho TTS
-// ══════════════════════════════════
-function splitIntoChunks(text, maxChars = 300) {
-  // Strip markdown trước
-  let clean = text
-    .replace(/\*\*|__|~~|`{1,3}/g, '')
-    .replace(/#{1,6}\s*/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
-    .replace(/^[\s]*[-*•]\s+/gm, '')
-    .replace(/^[\s]*\d+\.\s+/gm, '')
-    .replace(/\|[^|]*\|/g, '')
-    .replace(/-{3,}/g, '')
-    .replace(/\n{2,}/g, '. ')
-    .replace(/\s+/g, ' ')
-    .trim();
 
-  if (clean.length <= maxChars) return [clean];
-
-  const chunks = [];
-  let remaining = clean;
-
-  while (remaining.length > 0) {
-    if (remaining.length <= maxChars) {
-      chunks.push(remaining.trim());
-      break;
-    }
-    // Cắt tại câu gần nhất trong phạm vi maxChars
-    const slice = remaining.substring(0, maxChars);
-    let cutAt = -1;
-    // Tìm dấu chấm câu cuối cùng
-    for (const sep of ['. ', '! ', '? ', '.\n', '!\n', '?\n']) {
-      const idx = slice.lastIndexOf(sep);
-      if (idx > cutAt) cutAt = idx + 1;
-    }
-    // Fallback: dấu phẩy hoặc khoảng trắng
-    if (cutAt < maxChars / 3) {
-      const commaIdx = slice.lastIndexOf(', ');
-      if (commaIdx > maxChars / 3) cutAt = commaIdx + 2;
-      else cutAt = slice.lastIndexOf(' ') + 1;
-    }
-    if (cutAt <= 0) cutAt = maxChars;
-
-    chunks.push(remaining.substring(0, cutAt).trim());
-    remaining = remaining.substring(cutAt).trim();
-  }
-
-  return chunks.filter(c => c.length > 5);
-}
 
 // ══════════════════════════════════
 // AUDIO ENGINE — Debug + Dual playback (AudioContext + HTML5 Audio fallback)
@@ -657,13 +608,11 @@ function getFallbackAudio() {
 }
 
 function warmUpAudio() {
-  const ctx = getAudioCtx();
-  console.log('[Audio] warmUp — AudioContext state:', ctx.state);
+  getAudioCtx();
 }
 
 // Debug hiển thị trạng thái trên overlay
 function debugTTS(msg) {
-  console.log('[TTS-DEBUG]', msg);
   const el = document.querySelector('.voice-status-text');
   if (el) el.textContent = msg;
 }
@@ -738,36 +687,7 @@ async function playAudioBlob(blob) {
   });
 }
 
-// Auto-play TTS cho voice mode
-async function autoPlayTTS(text) {
-  try {
-    setOverlayState('speaking');
-    debugTTS('🔄 Đang gọi TTS...');
 
-    const resp = await fetch('/api/tts/speak', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-
-    debugTTS('📥 TTS response: HTTP ' + resp.status);
-    if (!resp.ok) throw new Error('TTS error ' + resp.status);
-
-    const blob = await resp.blob();
-    debugTTS('📦 Blob: ' + blob.size + ' bytes, type: ' + blob.type);
-
-    await playAudioBlob(blob);
-    hideVoiceOverlay();
-    clearVoiceStatus();
-  } catch(e) {
-    debugTTS('❌ TTS Error: ' + e.message);
-    console.error('[TTS auto-play error]', e);
-    setTimeout(() => {
-      hideVoiceOverlay();
-      clearVoiceStatus();
-    }, 3000);
-  }
-}
 
 // ══════════════════════════════════
 // VOICE CHAT — Nói chuyện trực tiếp với Cô Thắm
@@ -785,7 +705,7 @@ function stopAllTTS() {
   if (_currentSource) { try { _currentSource.stop(); } catch(e) {} _currentSource = null; }
   // Dừng fallback HTML5 Audio
   if (_fallbackAudio) { try { _fallbackAudio.pause(); _fallbackAudio.src = ''; } catch(e) {} }
-  console.log('[TTS] ❌ Cancelled');
+
 }
 
 // --- Overlay helpers ---
@@ -1000,6 +920,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('click', function _warmup() {
     warmUpAudio();
     document.removeEventListener('click', _warmup);
-    console.log('[Audio] 🔓 First click → audio unlocked for Chrome/Safari');
+
   }, { once: true });
 });

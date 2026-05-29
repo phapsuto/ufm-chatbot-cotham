@@ -27,9 +27,11 @@
 
 **Cô Giáo Thắm** là chatbot AI mang nhân cách cô giáo miền Nam ấm áp, chuyên tư vấn tuyển sinh các chương trình **Thạc sĩ** và **Tiến sĩ** tại UFM. Hệ thống sử dụng kiến trúc **RAG (Retrieval-Augmented Generation)** kết hợp:
 
-- 🧠 **FPT Cloud Gemma-4** — LLM chính cho chat (ổn định, không rate limit)
+- 🧠 **FPT Cloud Qwen3-32B** — LLM chính cho chat (ổn định, không rate limit)
 - 🔍 **Gemini API + Google Search** — Tìm kiếm internet chất lượng cao
 - 📚 **Hybrid RAG** — BM25 + Vector Search + BGE-M3 Reranker ONNX
+- 🎤 **Voice Chat** — Nói chuyện trực tiếp với Cô Thắm (STT + Streaming TTS)
+- 🔊 **FPT.AI-VITs TTS** — Giọng nói tiếng Việt tự nhiên, ngọt ngào (giọng Kim Ngân, miền Nam)
 
 ---
 
@@ -40,6 +42,7 @@
 │                    FRONTEND (static/)                       │
 │              index.html + app.js + app.css                  │
 │              CRM Dashboard: crm/index.html                  │
+│              🎤 Voice Chat + 🔊 Streaming TTS               │
 └──────────────────────┬──────────────────────────────────────┘
                        │ SSE Stream
 ┌──────────────────────▼──────────────────────────────────────┐
@@ -49,7 +52,7 @@
 │  📨 CHAT PIPELINE (routes/chat.py)                          │
 │  ┌─────────┐  ┌──────────┐  ┌───────────┐  ┌────────────┐  │
 │  │ Pronoun  │→│ KB Search │→│ Reranker  │→│ LLM Stream │  │
-│  │ Detect   │  │ BM25+Vec │  │ BGE-M3   │  │ Gemma-4    │  │
+│  │ Detect   │  │ BM25+Vec │  │ BGE-M3   │  │ Qwen3-32B  │  │
 │  └─────────┘  └──────────┘  └───────────┘  └────────────┘  │
 │                                                             │
 │  🔍 SEARCH ENGINE                                           │
@@ -57,7 +60,16 @@
 │     FALLBACK: DuckDuckGo HTML API                           │
 │                                                             │
 │  🧠 CHAT LLM                                                │
-│     FPT Cloud Gemma-4 (ổn định, không rate limit)           │
+│     FPT Cloud Qwen3-32B (ổn định, không rate limit)         │
+│                                                             │
+│  🔊 TEXT-TO-SPEECH                                          │
+│     PRIMARY:  FPT.AI-VITs (FPT Cloud Marketplace, ~1-2s)   │
+│     FALLBACK: VieNeu-TTS Sidecar (local)                    │
+│                                                             │
+│  🎤 VOICE CHAT                                              │
+│     STT: Web Speech API (Chrome/Edge)                       │
+│     TTS: Streaming — phát ngay khi câu đầu sẵn sàng        │
+│     Auto-listen: Tự động nghe tiếp sau khi Cô Thắm nói    │
 │                                                             │
 │  📊 RERANKER                                                │
 │     BGE-Reranker-v2-M3 ONNX INT8 (~500MB, CPU only)        │
@@ -85,6 +97,14 @@
 - **Anti-hallucination**: Nguyên tắc vàng — không bịa số liệu, nói thẳng khi thiếu dữ liệu
 - **Streaming response**: SSE real-time, phản hồi tức thì
 
+### 🎤 Voice Chat — Nói chuyện trực tiếp
+- **Speech-to-Text**: Web Speech API (Chrome/Edge), nhận dạng tiếng Việt
+- **Streaming TTS**: Phát giọng nói ngay khi LLM stream câu đầu tiên (~3s tổng latency)
+- **Auto-listen loop**: Cô Thắm nói xong → tự động nghe tiếp → hội thoại liên tục
+- **Voice Fast Path**: Skip crawling, PDF, suggestions → phản hồi nhanh hơn 5-10x
+- **Giọng Cô Thắm**: FPT.AI-VITs `std_kimngan` — giọng nữ miền Nam, tự nhiên, ngọt ngào
+- **Voice prompt riêng**: Trả lời ngắn gọn, văn nói, có gợi ý hướng hỏi tiếp
+
 ### 🔍 Tìm kiếm đa tầng
 - **Offline KB**: Hybrid Search (BM25 + ChromaDB Vector) → BGE-M3 Reranker
 - **Online Search**: Gemini API + Google Search Grounding (fallback: DuckDuckGo)
@@ -111,14 +131,15 @@ chtabot DH Tai Chinh/
 │   ├── models.py                # Pydantic models
 │   ├── knowledge_base/          # 272 file .md (3.6MB RAG data)
 │   ├── routes/
-│   │   ├── chat.py              # Chat pipeline chính
+│   │   ├── chat.py              # Chat pipeline chính + Voice Fast Path
 │   │   ├── crm.py               # CRM Dashboard API
 │   │   ├── enrollment.py        # Đăng ký dự tuyển
 │   │   ├── guest.py             # Xác định danh tính
 │   │   ├── handoff.py           # Chuyển giao nhân viên
 │   │   └── health.py            # Health check + OCR diagnostic
 │   └── services/
-│       ├── llm_service.py       # FPT Cloud Gemma-4 (chat LLM)
+│       ├── llm_service.py       # FPT Cloud Qwen3-32B + VOICE_SYSTEM_PROMPT
+│       ├── tts_service.py       # FPT.AI-VITs TTS (cloud) + VieNeu fallback
 │       ├── kb_service.py        # Hybrid Search (BM25 + Vector)
 │       ├── reranker_service.py  # BGE-M3 ONNX INT8 Reranker
 │       ├── vector_service.py    # ChromaDB embedding
@@ -134,9 +155,9 @@ chtabot DH Tai Chinh/
 │       ├── scoring_engine.py    # Lead scoring
 │       └── suggestion_service.py # Gợi ý câu hỏi
 ├── static/
-│   ├── index.html               # Chat UI
-│   ├── app.js                   # Frontend logic
-│   ├── app.css                  # Styles
+│   ├── index.html               # Chat UI + Voice Chat overlay
+│   ├── app.js                   # Frontend logic + Streaming TTS engine
+│   ├── app.css                  # Styles + Voice overlay animations
 │   └── crm/                     # CRM Dashboard UI
 ├── data/                        # Runtime data (gitignored)
 ├── requirements.txt             # Python dependencies
@@ -207,13 +228,15 @@ cp .env.example .env
 
 | Biến | Mô tả | Mặc định |
 |:---|:---|:---|
-| `FPT_CLOUD_API_KEY` | API key FPT Cloud (chat LLM) | *required* |
-| `FPT_CLOUD_DEFAULT_MODEL` | Model chat | `gemma-4-31B-it` |
+| `FPT_CLOUD_API_KEY` | API key FPT Cloud (chat LLM + TTS) | *required* |
+| `FPT_CLOUD_DEFAULT_MODEL` | Model chat | `Qwen3-32B` |
 | `GEMINI_API_KEY` | API key Gemini (search grounding) | *optional* |
 | `GEMINI_DEFAULT_MODEL` | Model search | `gemini-flash-latest` |
-| `LLM_MAX_TOKENS` | Token tối đa mỗi response | `4096` |
+| `LLM_MAX_TOKENS` | Token tối đa mỗi response | `2048` |
 | `ALLOWED_DOMAIN` | Domain crawl cho phép | `daotaosdh.ufm.edu.vn` |
 | `CRM_DASHBOARD_PASSWORD` | Mật khẩu CRM | `ufm_crm_2026` |
+
+> **Lưu ý**: FPT Cloud API Key dùng chung cho cả Chat LLM (Qwen3-32B) và TTS (FPT.AI-VITs).
 
 ---
 
@@ -231,6 +254,7 @@ docker compose up -d
 
 ### Truy cập
 - 💬 **Chat**: http://localhost:8000
+- 🎤 **Voice Chat**: Nhấn nút 🎤 trên giao diện chat
 - 📊 **CRM**: http://localhost:8000/crm
 - ❤️ **Health**: http://localhost:8000/health
 
@@ -241,8 +265,14 @@ docker compose up -d
 ### Chat
 | Method | Path | Mô tả |
 |:---|:---|:---|
-| `POST` | `/api/chat` | Gửi tin nhắn (SSE stream) |
+| `POST` | `/api/chat` | Gửi tin nhắn (SSE stream, hỗ trợ `voice_mode`) |
 | `GET` | `/api/suggestions` | Gợi ý câu hỏi tiếp theo |
+
+### TTS (Text-to-Speech)
+| Method | Path | Mô tả |
+|:---|:---|:---|
+| `POST` | `/api/tts/speak` | Chuyển text → audio WAV |
+| `GET` | `/api/tts/health` | Kiểm tra TTS khả dụng |
 
 ### Guest & Enrollment
 | Method | Path | Mô tả |
@@ -291,7 +321,9 @@ Thêm file `.md` mới vào `app/knowledge_base/` → restart server → tự đ
 | Thành phần | Công nghệ | Ghi chú |
 |:---|:---|:---|
 | **Backend** | FastAPI + Uvicorn | Async, SSE streaming |
-| **Chat LLM** | FPT Cloud Gemma-4 31B | PRIMARY — ổn định |
+| **Chat LLM** | FPT Cloud Qwen3-32B | PRIMARY — ổn định |
+| **TTS** | FPT.AI-VITs (FPT Cloud) | Giọng Kim Ngân, miền Nam |
+| **Voice Chat** | Web Speech API + Streaming TTS | Chrome/Edge |
 | **Search** | Gemini API + Google Search | Grounding chất lượng cao |
 | **Embedding** | `all-MiniLM-L6-v2` + ChromaDB | Vector search |
 | **BM25** | `rank_bm25` (in-memory) | Keyword search |
@@ -304,8 +336,19 @@ Thêm file `.md` mới vào `app/knowledge_base/` → restart server → tự đ
 
 ## 📝 Changelog
 
+### v6.0.0 (2026-05-29) — Voice Chat & FPT Cloud TTS
+
+- 🎤 **Voice Chat**: Nói chuyện trực tiếp với Cô Thắm qua microphone
+- 🔊 **FPT.AI-VITs TTS**: Giọng nữ miền Nam tự nhiên (std_kimngan), cloud API ~1-2s
+- ⚡ **Streaming TTS**: Phát audio ngay khi câu đầu từ LLM sẵn sàng (không chờ full response)
+- 🔄 **Auto-listen loop**: Cô Thắm nói xong → tự động nghe tiếp → hội thoại liên tục
+- 🏎️ **Voice Fast Path**: Skip crawling/PDF cho voice → latency giảm 5-10x
+- 🗣️ **Voice System Prompt**: Prompt riêng cho voice — văn nói ngắn gọn, có gợi ý hỏi tiếp
+- 🧠 **Nâng cấp LLM**: Gemma-4 → Qwen3-32B (thinking + tool-calling)
+- 🧹 **Code cleanup**: Xoá 85 dòng dead code, 5 debug console.log
+
 ### v5.0.0 (2026-05-28) — Kiến trúc phân vai
-- 🔄 **Phân vai LLM**: FPT Cloud Gemma-4 = chat, Gemini API = search grounding
+- 🔄 **Phân vai LLM**: FPT Cloud = chat, Gemini API = search grounding
 - 🔍 **Nâng cấp search**: Gemini Google Search thay DuckDuckGo (fallback DDG)
 - 🐛 **Fix double KB search**: context_service không còn gọi search_kb() lần 2
 - 🎯 **Hạ ngưỡng reranker**: 0.6 → 0.35 (phù hợp hybrid BGE-M3)
