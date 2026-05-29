@@ -461,6 +461,9 @@ async function checkTTSAvailability() {
 // VOICE CHAT — Nói chuyện trực tiếp với Cô Thắm
 // ══════════════════════════════════
 let _recognition = null;
+let _silenceTimer = null;
+let _fullTranscript = '';
+const SILENCE_TIMEOUT = 2500; // 2.5 giây im lặng → gửi
 
 function initSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -472,53 +475,76 @@ function initSpeechRecognition() {
   }
   const recognition = new SpeechRecognition();
   recognition.lang = 'vi-VN';
-  recognition.continuous = false;
-  recognition.interimResults = true;
+  recognition.continuous = true;       // KHÔNG dừng sau câu đầu
+  recognition.interimResults = true;    // Hiển thị realtime
   recognition.maxAlternatives = 1;
 
   recognition.onstart = () => {
     state.isRecording = true;
+    _fullTranscript = '';
     $('#mic-btn').classList.add('recording');
     $('#mic-btn').innerHTML = '⏹';
-    setVoiceStatus('🎤 Đang nghe... Hãy nói câu hỏi của bạn', 'listening');
+    setVoiceStatus('🎤 Đang nghe... Nói tự nhiên, Cô Thắm sẽ đợi bạn nói xong', 'listening');
   };
 
   recognition.onresult = (event) => {
-    let transcript = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      transcript += event.results[i][0].transcript;
+    // Ghép tất cả final + interim results thành transcript đầy đủ
+    let finalText = '';
+    let interimText = '';
+    for (let i = 0; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        finalText += event.results[i][0].transcript;
+      } else {
+        interimText += event.results[i][0].transcript;
+      }
     }
+    const displayText = finalText + interimText;
+    _fullTranscript = finalText; // Lưu phần đã xác nhận
+
     // Hiển thị realtime trong ô input
-    inputEl().value = transcript;
+    inputEl().value = displayText;
     autoResize();
 
-    // Nếu kết quả final → gửi luôn
-    if (event.results[event.results.length - 1].isFinal && transcript.trim()) {
-      setVoiceStatus('✨ Đang gửi cho Cô Thắm...', 'processing');
-      setTimeout(() => {
-        sendMessage(transcript.trim(), true); // autoSpeak = true
-        inputEl().value = '';
-        autoResize();
-        clearVoiceStatus();
-      }, 300);
+    // Reset silence timer mỗi khi có kết quả mới
+    clearTimeout(_silenceTimer);
+    if (_fullTranscript.trim() || interimText.trim()) {
+      _silenceTimer = setTimeout(() => {
+        // 2.5 giây không có âm thanh mới → dừng và gửi
+        if (_recognition && state.isRecording) {
+          _recognition.stop();
+        }
+      }, SILENCE_TIMEOUT);
     }
   };
 
   recognition.onerror = (event) => {
     console.error('[Voice] Error:', event.error);
-    stopRecording();
+    clearTimeout(_silenceTimer);
     if (event.error === 'not-allowed') {
       setVoiceStatus('❌ Vui lòng cho phép sử dụng microphone', 'listening');
+      stopRecording();
     } else if (event.error === 'no-speech') {
-      setVoiceStatus('😶 Không nghe thấy gì, thử lại nhé', '');
-    } else {
+      setVoiceStatus('😶 Không nghe thấy gì, bấm 🎤 để thử lại', '');
+      stopRecording();
+    } else if (event.error !== 'aborted') {
       setVoiceStatus('⚠️ Lỗi nhận diện giọng nói', '');
+      stopRecording();
     }
     setTimeout(clearVoiceStatus, 3000);
   };
 
   recognition.onend = () => {
+    clearTimeout(_silenceTimer);
+    const textToSend = (_fullTranscript || inputEl().value).trim();
     stopRecording();
+
+    if (textToSend && !state.isLoading) {
+      setVoiceStatus('✨ Đang gửi cho Cô Thắm...', 'processing');
+      inputEl().value = '';
+      autoResize();
+      sendMessage(textToSend, true); // autoSpeak = true → Cô Thắm nói lại
+      setTimeout(clearVoiceStatus, 1500);
+    }
   };
 
   return recognition;
@@ -527,17 +553,20 @@ function initSpeechRecognition() {
 function toggleVoiceChat() {
   if (state.isLoading) return;
   if (state.isRecording) {
-    // Dừng ghi âm
+    // User bấm dừng → gửi luôn
+    clearTimeout(_silenceTimer);
     if (_recognition) _recognition.stop();
-    stopRecording();
   } else {
     // Bắt đầu ghi âm
     if (!_recognition) _recognition = initSpeechRecognition();
     if (!_recognition) return;
+    // Dừng audio đang phát (nếu có)
+    if (state.currentAudio) { state.currentAudio.pause(); state.currentAudio = null; }
+    _fullTranscript = '';
+    inputEl().value = '';
     try {
       _recognition.start();
     } catch(e) {
-      // Đang chạy rồi, stop rồi start lại
       _recognition.stop();
       setTimeout(() => _recognition.start(), 200);
     }
