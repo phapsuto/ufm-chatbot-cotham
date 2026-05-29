@@ -457,32 +457,45 @@ async function checkTTSAvailability() {
   } catch(e) { state.ttsAvailable = false; }
 }
 // ══════════════════════════════════
-// AUDIO ENGINE — Web Audio API (AudioContext)
+// AUDIO ENGINE — Debug + Dual playback (AudioContext + HTML5 Audio fallback)
 // ══════════════════════════════════
-// AudioContext: tạo 1 lần trên user gesture → hoạt động MÃI MÃI.
-// Đã chứng minh hoạt động (lần trước phát được 3s — lỗi 3s là do prefetch,
-// không phải AudioContext). Giờ prefetch đã xóa → phát ĐẦY ĐỦ.
 let _audioCtx = null;
 let _currentSource = null;
+// HTML5 Audio fallback — always works with user gesture
+let _fallbackAudio = null;
 
 function getAudioCtx() {
   if (!_audioCtx) {
     _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-  // Resume nếu bị suspended (Chrome policy)
   if (_audioCtx.state === 'suspended') {
     _audioCtx.resume();
   }
   return _audioCtx;
 }
 
-// Gọi trên MỌI user click — đảm bảo AudioContext activated
-function warmUpAudio() {
-  const ctx = getAudioCtx();
-  console.log('[Audio] AudioContext state:', ctx.state);
+function getFallbackAudio() {
+  if (!_fallbackAudio) {
+    _fallbackAudio = document.createElement('audio');
+    _fallbackAudio.style.cssText = 'position:fixed;bottom:10px;left:10px;z-index:99999;';
+    _fallbackAudio.controls = true;
+    document.body.appendChild(_fallbackAudio);
+  }
+  return _fallbackAudio;
 }
 
-// Phát audio blob bằng AudioContext — CÁCH ĐÃ CHỨNG MINH HOẠT ĐỘNG
+function warmUpAudio() {
+  const ctx = getAudioCtx();
+  console.log('[Audio] warmUp — AudioContext state:', ctx.state);
+}
+
+// Debug hiển thị trạng thái trên overlay
+function debugTTS(msg) {
+  console.log('[TTS-DEBUG]', msg);
+  const el = document.querySelector('.voice-status-text');
+  if (el) el.textContent = msg;
+}
+
 async function playAudioBlob(blob) {
   // Dừng audio cũ
   if (_currentSource) {
@@ -490,27 +503,66 @@ async function playAudioBlob(blob) {
     _currentSource = null;
   }
 
-  const ctx = getAudioCtx();
-  const arrayBuf = await blob.arrayBuffer();
-  console.log('[TTS] Decoding audio:', arrayBuf.byteLength, 'bytes, ctx state:', ctx.state);
+  const url = URL.createObjectURL(blob);
 
-  const audioBuf = await ctx.decodeAudioData(arrayBuf);
-  console.log('[TTS] Decoded:', audioBuf.duration.toFixed(1), 'giây,', audioBuf.sampleRate, 'Hz');
+  // === PHƯƠNG ÁN 1: HTML5 Audio element (fallback, luôn hiện controls) ===
+  debugTTS('🔄 Chuẩn bị phát audio... (' + blob.size + ' bytes)');
+  const fa = getFallbackAudio();
+  fa.src = url;
+  fa.volume = 1.0;
 
+  // Thử phát bằng HTML5 Audio trước
+  try {
+    await fa.play();
+    debugTTS('▶️ Đang phát qua HTML5 Audio...');
+    return new Promise((resolve) => {
+      fa.onended = () => {
+        debugTTS('✅ Audio xong!');
+        resolve();
+      };
+      fa.onerror = () => {
+        debugTTS('❌ HTML5 Audio lỗi');
+        resolve();
+      };
+    });
+  } catch(e1) {
+    debugTTS('⚠️ HTML5 Audio blocked: ' + e1.message);
+    console.warn('[TTS] HTML5 Audio failed:', e1);
+  }
+
+  // === PHƯƠNG ÁN 2: AudioContext (Web Audio API) ===
+  try {
+    const ctx = getAudioCtx();
+    debugTTS('🔄 Thử AudioContext (state: ' + ctx.state + ')...');
+    const arrayBuf = await blob.arrayBuffer();
+    const audioBuf = await ctx.decodeAudioData(arrayBuf);
+    debugTTS('📊 Decoded: ' + audioBuf.duration.toFixed(1) + 's, ' + audioBuf.sampleRate + 'Hz');
+
+    return new Promise((resolve) => {
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuf;
+      source.connect(ctx.destination);
+      _currentSource = source;
+      source.onended = () => {
+        debugTTS('✅ AudioContext xong!');
+        _currentSource = null;
+        resolve();
+      };
+      source.start(0);
+      debugTTS('▶️ Đang phát qua AudioContext...');
+    });
+  } catch(e2) {
+    debugTTS('❌ AudioContext cũng lỗi: ' + e2.message);
+    console.error('[TTS] AudioContext failed:', e2);
+  }
+
+  // === PHƯƠNG ÁN 3: Hiện controls để user tự bấm ===
+  debugTTS('👆 Bấm nút Play trên thanh audio bên dưới');
+  fa.style.display = 'block';
   return new Promise((resolve) => {
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuf;
-    source.connect(ctx.destination);
-    _currentSource = source;
-
-    source.onended = () => {
-      console.log('[TTS] ✅ Audio phát xong —', audioBuf.duration.toFixed(1), 'giây');
-      _currentSource = null;
-      resolve();
-    };
-
-    source.start(0);
-    console.log('[TTS] ▶️ Đang phát:', audioBuf.duration.toFixed(1), 'giây');
+    fa.onended = () => resolve();
+    // Đợi tối đa 60s
+    setTimeout(resolve, 60000);
   });
 }
 
@@ -518,25 +570,30 @@ async function playAudioBlob(blob) {
 async function autoPlayTTS(text) {
   try {
     setOverlayState('speaking');
-    setOverlayStatus('🔊 Cô Thắm đang trả lời...');
-    setOverlayTranscript('');
+    debugTTS('🔄 Đang gọi TTS...');
 
     const resp = await fetch('/api/tts/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
+
+    debugTTS('📥 TTS response: HTTP ' + resp.status);
     if (!resp.ok) throw new Error('TTS error ' + resp.status);
 
     const blob = await resp.blob();
-    console.log('[TTS] Audio blob:', blob.size, 'bytes, type:', blob.type);
+    debugTTS('📦 Blob: ' + blob.size + ' bytes, type: ' + blob.type);
+
     await playAudioBlob(blob);
     hideVoiceOverlay();
     clearVoiceStatus();
   } catch(e) {
+    debugTTS('❌ TTS Error: ' + e.message);
     console.error('[TTS auto-play error]', e);
-    hideVoiceOverlay();
-    clearVoiceStatus();
+    setTimeout(() => {
+      hideVoiceOverlay();
+      clearVoiceStatus();
+    }, 3000);
   }
 }
 
