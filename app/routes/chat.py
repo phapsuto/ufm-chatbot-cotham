@@ -100,35 +100,50 @@ async def chat(req: ChatRequest):
     # 4. Crawl HTML hoặc Tìm kiếm tự do trên Internet nếu là câu hỏi ngoài lề
     html_contents = {}
     pdf_contents = {}
-    routing = router_service.detect_intent(search_query)  # Dùng search_query để detect chính xác hơn
-    intent = routing["intents"][0] if routing["intents"] else "general"
+    voice_mode = req.voice_mode
 
-    # Định nghĩa hàm kiểm tra xem câu hỏi có chứa từ khóa đặc thù UFM không
+    # Helper: kiểm tra câu hỏi UFM
     def is_ufm_related(text: str) -> bool:
         keywords = ["ufm", "tài chính - marketing", "tài chính marketing", "tai chinh marketing", "cô thắm", "co tham", "sau đại học", "sau dai hoc", "trường mình", "truong minh", "khoa mình", "khoa minh", "chương trình mình", "chuong trinh minh"]
-        text_lower = text.lower()
-        return any(kw in text_lower for kw in keywords)
+        return any(kw in text.lower() for kw in keywords)
 
-    is_general = False
-    if not kb_has_strong_match:
-        # Nếu điểm số khớp offline rất thấp (< 0.15 = gần như không liên quan)
-        if highest_score < 0.15 or (intent == "general" and not is_ufm_related(message)):
-            logger.info(f"[pipeline] Unrelated/General question (score={highest_score:.4f}, intent={intent}). Triggering Gemini Google Search for: '{message}'")
-            search_results = await crawler_service.web_search_gemini(message)
-            if search_results:
-                html_contents["internet_search"] = search_results
-            is_general = True
-        elif routing.get("urls"):
-            logger.info("[pipeline] KB match low but UFM-related. Falling back to Web Crawler...")
-            html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
-            if html_contents:
-                all_html = "\n".join(html_contents.values())
-                pdf_links = pdf_service.extract_pdf_links(all_html)
-                if pdf_links:
-                    max_pdfs = 2 if routing.get("need_pdf") else 1
-                    pdf_contents = await pdf_service.read_pdfs(pdf_links, max_pdfs=max_pdfs)
+    # ══ VOICE FAST PATH: skip crawling cho tốc độ ══
+    if voice_mode:
+        routing = router_service.detect_intent(search_query)
+        intent = routing["intents"][0] if routing["intents"] else "general"
+        is_general = not kb_has_strong_match and not is_ufm_related(message)
+        if is_general and not kb_has_strong_match:
+            # Chỉ search web nếu KB hoàn toàn trống (score < 0.1)
+            if highest_score < 0.1:
+                logger.info(f"[voice-fast] No KB match, quick Gemini search")
+                search_results = await crawler_service.web_search_gemini(message)
+                if search_results:
+                    html_contents["internet_search"] = search_results
+        logger.info(f"[voice-fast] Skipped crawling, KB={len(kb_chunks)} score={highest_score:.3f}")
     else:
-        logger.info("[pipeline] Strong KB match found, skipping Web Crawler!")
+        # ══ TEXT MODE: pipeline đầy đủ ══
+        routing = router_service.detect_intent(search_query)
+        intent = routing["intents"][0] if routing["intents"] else "general"
+
+        is_general = False
+        if not kb_has_strong_match:
+            if highest_score < 0.15 or (intent == "general" and not is_ufm_related(message)):
+                logger.info(f"[pipeline] Unrelated/General question (score={highest_score:.4f}, intent={intent}). Triggering Gemini Google Search for: '{message}'")
+                search_results = await crawler_service.web_search_gemini(message)
+                if search_results:
+                    html_contents["internet_search"] = search_results
+                is_general = True
+            elif routing.get("urls"):
+                logger.info("[pipeline] KB match low but UFM-related. Falling back to Web Crawler...")
+                html_contents = await crawler_service.crawl_multiple(routing["urls"], max_urls=4)
+                if html_contents:
+                    all_html = "\n".join(html_contents.values())
+                    pdf_links = pdf_service.extract_pdf_links(all_html)
+                    if pdf_links:
+                        max_pdfs = 2 if routing.get("need_pdf") else 1
+                        pdf_contents = await pdf_service.read_pdfs(pdf_links, max_pdfs=max_pdfs)
+        else:
+            logger.info("[pipeline] Strong KB match found, skipping Web Crawler!")
 
     # 5. Build context + context summary (có pronoun_role)
     mem_summary = memory_service.get_context_summary(session_id)
@@ -145,7 +160,6 @@ async def chat(req: ChatRequest):
     history = memory_service.get_conversation_history(session_id)
     
     elapsed = time.time() - t0
-    voice_mode = req.voice_mode
     logger.info(f"[pipeline] prep={elapsed:.1f}s html={len(html_contents)} pdf={len(pdf_contents)} kb={len(kb_chunks)} voice={voice_mode}")
 
     # 7. Stream LLM response — pass context_summary for xưng hô + is_general + voice_mode
@@ -161,8 +175,10 @@ async def chat(req: ChatRequest):
         ctx = memory_service.get_or_create_session(session_id)["context"]
         asked_about = ctx.get("asked_about", [])
 
-        # Try LLM-generated suggestions (nếu có answer)
-        if full_response:
+        # Voice mode: skip LLM suggestions (tốn 2-3s), dùng static suggestions
+        if voice_mode:
+            suggestions = suggestion_service.get_suggestions(intent, asked_about)
+        elif full_response:
             suggestions = suggestion_service.generate_contextual_suggestions(
                 answer=full_response,
                 query=message,
