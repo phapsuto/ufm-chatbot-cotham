@@ -30,7 +30,11 @@ class Settings(BaseSettings):
     TTS_BASE_URL: str = "http://localhost:23333"  # VieNeu fallback
     TTS_TIMEOUT: float = 15.0  # FPT Cloud timeout
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore"
+    }
 
 @lru_cache
 def get_settings() -> Settings:

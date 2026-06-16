@@ -1,4 +1,4 @@
-"""app/services/kb_service.py — Offline Knowledge Base (BM25 Search)"""
+"""app/services/kb_service.py — Offline Knowledge Base (BM25 Search + Exact Match Boost)"""
 import os
 import re
 import math
@@ -31,7 +31,6 @@ class SimpleBM25:
                 nd[word] = nd.get(word, 0) + 1
                 
         for word, freq in nd.items():
-            # BM25 IDF formulation
             self.idf[word] = math.log(1 + (self.corpus_size - freq + 0.5) / (freq + 0.5))
 
     def get_scores(self, query, k1=1.5, b=0.75):
@@ -55,16 +54,13 @@ _chunk_ids = []
 _bm25 = None
 
 def _tokenize(text: str) -> list[str]:
-    # Tách từ tiếng Việt thành các compound words (ví dụ: "sinh_viên")
     text = text.lower()
     tokens = word_tokenize(text, format="text").split()
     return [t for t in tokens if len(t) > 1]
 
 def _smart_chunk_file(file_path: Path) -> list[str]:
-    """Chia nhỏ file Markdown một cách thông minh, gộp các dòng ngắn và giữ ngữ cảnh tiêu đề."""
     content = file_path.read_text(encoding="utf-8")
     
-    # Dọn dẹp tên file để làm chủ đề mặc định nếu không có tiêu đề
     file_title = file_path.stem
     if file_title.startswith("web_main_"):
         file_title = file_title.replace("web_main_", "Cổng thông tin UFM - ")
@@ -80,14 +76,12 @@ def _smart_chunk_file(file_path: Path) -> list[str]:
     current_lines = []
     current_len = 0
     
-    # Đọc từng dòng
     lines = content.splitlines()
     for line in lines:
         line_strip = line.strip()
         if not line_strip:
             continue
             
-        # Nhận diện tiêu đề Markdown
         h1_match = re.match(r'^#\s+(.+)$', line_strip)
         h2_match = re.match(r'^##\s+(.+)$', line_strip)
         h3_match = re.match(r'^###\s+(.+)$', line_strip)
@@ -121,7 +115,6 @@ def _smart_chunk_file(file_path: Path) -> list[str]:
         if is_header:
             continue
             
-        # Nhận diện ngắt trang hoặc phân tách ngang
         if line_strip == "---" or line_strip.startswith("<!-- Trang"):
             if current_lines:
                 chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
@@ -129,21 +122,17 @@ def _smart_chunk_file(file_path: Path) -> list[str]:
                 current_len = 0
             continue
             
-        # Thêm dòng vào chunk hiện tại
         current_lines.append(line_strip)
         current_len += len(line_strip)
         
-        # Flush nếu chunk đạt quá 800 ký tự
         if current_len > 800:
             chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
             current_lines = []
             current_len = 0
             
-    # Flush phần còn lại
     if current_lines:
         chunks.append((current_h1, current_h2, current_h3, "\n".join(current_lines)))
         
-    # Định dạng các chunk với đầy đủ ngữ cảnh
     formatted_chunks = []
     for h1, h2, h3, text in chunks:
         hierarchy = []
@@ -153,7 +142,6 @@ def _smart_chunk_file(file_path: Path) -> list[str]:
         
         topic = " > ".join(hierarchy) if hierarchy else file_title
         
-        # Lọc bỏ các chunk quá rác (dưới 20 ký tự thực tế)
         if len(text.strip()) > 20:
             formatted = f"Nguồn: {file_path.name}\nChủ đề: {topic}\nNội dung:\n{text}"
             formatted_chunks.append(formatted)
@@ -170,13 +158,11 @@ def _load_kb():
     total_files = 0
     for file_path in KB_DIR.glob("*.md"):
         try:
-            # Sử dụng bộ chunker thông minh thay vì split thô
             file_chunks = _smart_chunk_file(file_path)
             for chunk in file_chunks:
                 _chunks.append(chunk)
                 _chunk_ids.append(f"{file_path.name}_{len(_chunks)}")
                 
-                # Trích xuất phần nội dung thực tế để token hóa cho BM25
                 content_part = chunk.split("Nội dung:\n", 1)[-1]
                 docs.append(_tokenize(content_part))
             total_files += 1
@@ -189,23 +175,21 @@ def _load_kb():
         vector_service.index_chunks(_chunks, _chunk_ids)
 
 def init_kb():
-    """Gọi từ main.py lifespan để khởi tạo KB một cách có kiểm soát."""
     _load_kb()
 
 def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) -> list[dict]:
-    """Tìm kiếm nội dung offline dựa vào câu hỏi, sử dụng Hybrid Search (BM25 + Vector) và metadata boost."""
     if not _bm25 or not _chunks:
         return []
         
     query_lower = query.lower()
     
-    # 1. Tự động phát hiện và ghi đè Level dựa trên câu hỏi thực tế
+    # 1. Tự động phát hiện Level dựa trên câu hỏi
     if any(k in query_lower for k in ["tiến sĩ", "tiến sỹ", "tien si", "tien sy", "nghiên cứu sinh", "ncs", "luận án"]):
         level = "tien_si"
     elif any(k in query_lower for k in ["thạc sĩ", "thạc sỹ", "thac si", "thac sy", "cao học", "cao hoc", "luận văn"]):
         level = "thac_si"
         
-    # 2. Tự động phát hiện và ghi đè Major dựa trên câu hỏi thực tế
+    # 2. Tự động phát hiện Major
     if any(k in query_lower for k in ["quản trị kinh doanh", "qtkd"]):
         major = "quản trị kinh doanh"
     elif any(k in query_lower for k in ["tài chính", "ngân hàng", "tcnh"]):
@@ -227,7 +211,7 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
     if not query_tokens:
         return []
         
-    # 1. Thu thập ứng cử viên từ BM25 (lấy top 20 Chunks)
+    # BM25 Search Candidates (top 20)
     bm25_scores = _bm25.get_scores(query_tokens)
     top_bm25_indices = sorted(range(len(_chunks)), key=lambda i: bm25_scores[i], reverse=True)[:20]
     
@@ -236,9 +220,8 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
         if bm25_scores[idx] > 0.0:
             candidate_chunks[idx] = _chunks[idx]
             
-    # 2. Thu thập ứng cử viên từ Vector Search (lấy top 20 Chunks)
+    # Vector Search Candidates (top 20)
     vector_results = vector_service.semantic_search(query, top_k=20)
-    # Ánh xạ từ content về index trong _chunks
     chunk_index_map = {chunk: i for i, chunk in enumerate(_chunks)}
     for res in vector_results:
         content = res["content"]
@@ -249,25 +232,33 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
     if not candidate_chunks:
         return []
         
-    # Chuyển đổi thành danh sách các index và các chunk ứng cử viên thực tế
     candidate_indices = list(candidate_chunks.keys())
     candidate_texts = list(candidate_chunks.values())
     
-    # 3. Reranking tất cả ứng cử viên bằng CrossEncoder (BGE-M3)
+    # 3. Reranking bằng local CrossEncoder (BGE-M3)
     rerank_scores = reranker_service.rerank(query, candidate_texts)
     
-    # 4. Áp dụng Metadata Boosting lên kết quả Rerank
+    # 4. Áp dụng Metadata + Exact Match Boosting
+    # Tìm kiếm các số quyết định/quy chế dạng 3-4 chữ số trong câu hỏi (ví dụ: "3522", "1015")
+    doc_num_match = re.findall(r'\b\d{3,4}\b', query)
+    
     final_results = []
     for i, idx in enumerate(candidate_indices):
         score = rerank_scores[i]
         chunk = candidate_texts[i]
         
-        # Áp dụng Metadata Boosting nếu có ngữ cảnh level hoặc major
+        first_line = chunk.splitlines()[0]
+        filename = first_line.replace("Nguồn: ", "").strip().lower()
+        
+        # --- Exact Match Boost (Tầng 3) ---
+        if doc_num_match:
+            for num in doc_num_match:
+                if num in filename:
+                    score = min(1.0, score * 3.0)  # Boost mạnh điểm số
+                    logger.info(f"[kb] Exact match boost applied for doc number '{num}' in {filename}")
+        
+        # --- Metadata Boosting ---
         if level or major:
-            first_line = chunk.splitlines()[0]
-            filename = first_line.replace("Nguồn: ", "").strip().lower()
-            
-            # 1. Khớp Level (Bậc đào tạo)
             level_match = False
             if level == "tien_si":
                 if any(k in filename for k in ["tiến sĩ", "tien si", "ts"]):
@@ -276,7 +267,6 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
                 if any(k in filename for k in ["thạc sĩ", "thac si", "ths", "cao học", "cao hoc"]):
                     level_match = True
                     
-            # 2. Khớp Major (Ngành học)
             major_match = False
             if major:
                 major_clean = major.lower()
@@ -301,9 +291,8 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
                 if any(k in filename for k in major_keywords):
                     major_match = True
                     
-            # Áp dụng hệ số nhân boost
             if level_match and major_match:
-                score = min(1.0, score * 1.5)  # Ưu tiên cao nhất
+                score = min(1.0, score * 1.5)
             elif level_match or major_match:
                 score = min(1.0, score * 1.2)
                 
@@ -312,7 +301,5 @@ def search_kb(query: str, top_k: int = 3, level: str = None, major: str = None) 
             "score": score
         })
         
-    # Trả về top_k kết quả sau khi đã Rerank và Boost
     final_results = sorted(final_results, key=lambda x: x["score"], reverse=True)[:top_k]
-    
     return final_results

@@ -51,3 +51,5 @@ app/database/chroma_db/
 app/database/pdfs/
 app/database/qa_cache.json
 data/models/
+.conversation_id
+.telegram_sync.json

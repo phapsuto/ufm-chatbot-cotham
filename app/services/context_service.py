@@ -202,7 +202,11 @@ def build_context(
 
     # Build context string prioritizing relevant sources
     parts = []
-    for s in top_sources:
+    for idx, s in enumerate(top_sources):
+        cid_label = f"C{idx+1}"
+        if not s["title"].startswith("[C"):
+            s["title"] = f"[{cid_label}] {s['title']}"
+            
         if s["type"] == "webpage":
             content = html_contents.get(s["url"], "")
         elif s["type"] == "pdf":
@@ -210,10 +214,14 @@ def build_context(
         else:
             content = s.get("content", "")
         limit = 6000 if s["type"] == "database" else 4000
-        parts.append(f"[NGUỒN: {s['title']}]\n{content[:limit]}")
+        parts.append(f"[{cid_label}] [NGUỒN: {s['title']}]\n{content[:limit]}")
 
     # Add remaining sources with lower priority
-    for s in sources_with_score[3:]:
+    for idx, s in enumerate(sources_with_score[3:]):
+        cid_label = f"C{idx+4}"
+        if not s["title"].startswith("[C"):
+            s["title"] = f"[{cid_label}] {s['title']}"
+            
         if s["type"] == "webpage":
             content = html_contents.get(s["url"], "")
         elif s["type"] == "pdf":
@@ -221,7 +229,7 @@ def build_context(
         else:
             content = s.get("content", "")
         limit = 4000 if s["type"] == "database" else 2000
-        parts.append(f"[NGUỒN: {s['title']}]\n{content[:limit]}")
+        parts.append(f"[{cid_label}] [NGUỒN: {s['title']}]\n{content[:limit]}")
 
     if memory_summary:
         parts.append(f"[NGỮ CẢNH HỘI THOẠI]\n{memory_summary}")

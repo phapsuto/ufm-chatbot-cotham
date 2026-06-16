@@ -170,6 +170,15 @@ Các ngành tiến sĩ UFM: Quản trị kinh doanh, Tài chính - Ngân hàng, 
 - Trình bày mạch lạc, khoa học, phân tách các ý bằng bullet points rõ ràng.
 - Khuyến khích viết chi tiết, chuyên sâu và đầy đủ luận điểm để hỗ trợ định hướng tốt nhất cho người học.
 
+════════════════════════════════
+QUY TẮC TRÍCH DẪN VÀ CHỐNG ẢO GIÁC (CITATION LOCK)
+════════════════════════════════
+1. Khi trích dẫn thông tin học vụ, quy chế, hoặc điều kiện xét tuyển từ nguồn dữ liệu, bạn bắt buộc phải chỉ rõ nguồn bằng cách thêm thẻ neo tương ứng ở cuối câu (ví dụ: "[C1]", "[C2]",...).
+   - Ví dụ: "Điều kiện tuyển sinh thạc sĩ yêu cầu bằng đại học phù hợp và chứng chỉ tiếng Anh tương đương bậc 3 [C1]."
+   - Ví dụ: "Thời gian đào tạo trình độ thạc sĩ là 1.5 năm [C2]."
+2. Tuyệt đối KHÔNG được tự ý bịa đặt thẻ neo trích dẫn nếu nguồn dữ liệu đó không chứa thông tin.
+3. Không bao giờ nói các câu tiết lộ cơ chế nội bộ như "dựa trên nguồn [C1]". Chỉ sử dụng thẻ neo [C1] ở cuối câu khẳng định.
+
 ĐỊNH DẠNG:
 - Dùng Markdown: **bold**, danh sách bullet, tiêu đề nhỏ
 - Tiếng Việt tự nhiên, ấm áp, không dài dòng sáo rỗng nhưng phải đảm bảo ĐỦ và SÂU sắc thông tin.
@@ -233,6 +242,7 @@ def get_response_stream(
     context_summary: str = "",
     is_general: bool = False,
     voice_mode: bool = False,
+    system_prompt_override: str = None,
 ) -> Generator:
     """Stream response từ FPT Cloud Gemma-4 (PRIMARY).
     
@@ -277,7 +287,7 @@ def get_response_stream(
     user_prompt = "\n\n".join(user_parts)
 
     # Chọn prompt + params theo mode
-    sys_prompt = VOICE_SYSTEM_PROMPT if voice_mode else SYSTEM_PROMPT
+    sys_prompt = system_prompt_override or (VOICE_SYSTEM_PROMPT if voice_mode else SYSTEM_PROMPT)
     max_tok = 500 if voice_mode else settings.LLM_MAX_TOKENS
     temp = 0.7 if voice_mode else 0.5
 

@@ -1,12 +1,14 @@
-"""app/services/router_service.py — Intent detection + URL routing"""
+"""app/services/router_service.py — Semantic Intent Router + URL mapping"""
 import logging
+import re
+import numpy as np
 from app.config import settings
+from app.services import vector_service
 
 logger = logging.getLogger("ufm-chatbot")
 
 BASE = f"https://{settings.ALLOWED_DOMAIN}"
 
-# Thực tế UFM dùng ASP.NET URL patterns
 CATEGORY_PAGES = {
     "tuyen_sinh_thac_si": f"{BASE}/ChiTiet.aspx?LoaiTin=v1UjoAIA40d2Nl0tc5EwAA",
     "tuyen_sinh_tien_si": f"{BASE}/ChiTiet.aspx?LoaiTin=ffBwKFG43zUj-wnVkKHUNg",
@@ -21,6 +23,7 @@ CATEGORY_PAGES = {
     "bao_ve_luan_an": f"{BASE}/ChiTiet.aspx?LoaiTin=-K0-KOZzj-5-2_QOddP2YA",
     "bao_ve_luan_van": f"{BASE}/ChiTiet.aspx?LoaiTin=ifdVPsMrJ80B-dRMjA76Ow",
 }
+
 NGANH_TS = {
     "TCNH": f"{BASE}/ChiTietNganh.aspx?id=TCNH",
     "QTKD": f"{BASE}/ChiTietNganh.aspx?id=QTKD",
@@ -32,6 +35,7 @@ NGANH_TS = {
     "MKT": f"{BASE}/ChiTietNganh.aspx?id=MKT",
     "TKT": f"{BASE}/ChiTietNganh.aspx?id=TKT",
 }
+
 NGANH_TIENSI = {
     "TS_QTKD": f"{BASE}/ChiTietNganh.aspx?id=TS_QTKD",
     "TS_TCNH": f"{BASE}/ChiTietNganh.aspx?id=TS_TCNH",
@@ -87,7 +91,6 @@ INTENT_MAP = {
     },
 }
 
-# Ngành cụ thể
 NGANH_KW = {
     "tài chính": ["TCNH", "TS_TCNH"], "ngân hàng": ["TCNH", "TS_TCNH"],
     "quản trị kinh doanh": ["QTKD", "TS_QTKD"], "qtkd": ["QTKD", "TS_QTKD"],
@@ -96,15 +99,95 @@ NGANH_KW = {
     "kinh doanh quốc tế": ["KDQT"], "marketing": ["MKT"], "toán kinh tế": ["TKT"],
 }
 
+# ══════════════════════════════════════════════════
+# PROTOTYPES CHO SEMANTIC ROUTING
+# ══════════════════════════════════════════════════
+
+CHITCHAT_PROTOTYPES = [
+    "chào cô giáo thắm", "chào bạn", "hello", "hi", "tán gẫu", "bạn là ai", 
+    "cô là ai", "cô giáo thắm là ai", "hôm nay khoẻ không", "chúc một ngày tốt lành",
+    "tên bạn là gì", "cô thắm xinh đẹp", "giúp mình nói chuyện phiếm"
+]
+
+OUT_OF_SCOPE_PROTOTYPES = [
+    "viết code python", "bệnh tiểu đường triệu chứng", "thời tiết hôm nay", 
+    "công thức nấu ăn", "luật giao thông đường bộ", "đăng kiểm xe ô tô", 
+    "mua cổ phiếu nào tốt", "lịch sử việt nam", "cách làm bánh", "thuốc trị đau đầu",
+    "dịch bài hát tiếng anh", "chơi game gì hay", "hướng dẫn cài windows"
+]
+
+# Lưu trữ vector nhúng của prototypes để tránh tính toán lại
+_chitchat_vectors = None
+_out_of_scope_vectors = None
+
+def _lazy_init_vectors():
+    global _chitchat_vectors, _out_of_scope_vectors
+    if _chitchat_vectors is None:
+        if vector_service.embedder is not None:
+            try:
+                _chitchat_vectors = vector_service.embedder.encode(CHITCHAT_PROTOTYPES)
+                _out_of_scope_vectors = vector_service.embedder.encode(OUT_OF_SCOPE_PROTOTYPES)
+                # Normalize for cosine similarity
+                _chitchat_vectors = _chitchat_vectors / np.linalg.norm(_chitchat_vectors, axis=1, keepdims=True)
+                _out_of_scope_vectors = _out_of_scope_vectors / np.linalg.norm(_out_of_scope_vectors, axis=1, keepdims=True)
+                logger.info("[router] Semantic Router prototypes embedded successfully.")
+            except Exception as e:
+                logger.error(f"[router] Failed to embed prototypes: {e}")
+        else:
+            logger.warning("[router] Vector service embedder not loaded. Semantic routing fallback to keyword mode.")
+
+def classify_intent_semantic(query: str) -> str:
+    """Định tuyến câu hỏi dựa trên độ tương đồng vector Cosine với các prototype."""
+    _lazy_init_vectors()
+    if _chitchat_vectors is None or vector_service.embedder is None:
+        # Fallback dùng keyword regex thô sơ nếu không có vector
+        q = query.lower().strip()
+        if q in ["hi", "hello", "chào", "chào cô", "chào bạn", "cô thắm", "cô là ai"]:
+            return "chitchat"
+        if any(w in q for w in ["viết code", "python", "javascript", "nấu ăn", "thuốc trị", "bệnh án", "đóng tàu"]):
+            return "out_of_scope"
+        return "ufm_legal"
+
+    try:
+        q_vec = np.array(vector_service.generate_embedding(query), dtype=np.float32)
+        q_vec = q_vec / np.linalg.norm(q_vec)
+        
+        # Tính cosine similarity với chitchat
+        chitchat_sims = np.dot(_chitchat_vectors, q_vec)
+        best_chitchat_score = float(np.max(chitchat_sims))
+        
+        # Tính cosine similarity với out_of_scope
+        oos_sims = np.dot(_out_of_scope_vectors, q_vec)
+        best_oos_score = float(np.max(oos_sims))
+        
+        logger.debug(f"[router] Semantic Routing: chitchat_score={best_chitchat_score:.4f}, oos_score={best_oos_score:.4f}")
+        
+        # Ngưỡng khớp tương đồng ngữ nghĩa
+        if best_chitchat_score >= 0.70:
+            return "chitchat"
+        elif best_oos_score >= 0.70:
+            return "out_of_scope"
+            
+        return "ufm_legal"
+    except Exception as e:
+        logger.error(f"[router] Semantic routing classification error: {e}")
+        return "ufm_legal"
+
+# ══════════════════════════════════════════════════
+# MAIN DETECT INTENT
+# ══════════════════════════════════════════════════
 
 def detect_intent(query: str) -> dict:
-    """Phân tích câu hỏi → intent + URLs + need_pdf."""
+    """Phân tích câu hỏi → intent + URLs + need_pdf + routing_class."""
     msg = query.lower()
     urls = set()
     need_pdf = False
     matched_intents = []
 
-    # Match intent keywords
+    # 1. Phân loại ngữ nghĩa (Tầng 1 Semantic Router)
+    routing_class = classify_intent_semantic(query)
+    
+    # 2. Xử lý map keyword thông thường cho URLs
     for intent_name, cfg in INTENT_MAP.items():
         if any(kw in msg for kw in cfg["keywords"]):
             matched_intents.append(intent_name)
@@ -113,7 +196,6 @@ def detect_intent(query: str) -> dict:
             if cfg["need_pdf"]:
                 need_pdf = True
 
-    # Match ngành cụ thể
     for kw, ids in NGANH_KW.items():
         if kw in msg:
             for nid in ids:
@@ -122,16 +204,21 @@ def detect_intent(query: str) -> dict:
                 if nid in NGANH_TIENSI:
                     urls.add(NGANH_TIENSI[nid])
 
-    # Default nếu không match
     if not matched_intents:
         matched_intents = ["general"]
         urls.add(BASE)
         urls.add(CATEGORY_PAGES["ctdt_thac_si"])
 
-    # Luôn có trang chủ
     urls.add(BASE)
 
     intent = matched_intents[0] if len(matched_intents) == 1 else "multi"
     final_urls = list(urls)[:4]
-    logger.info(f"[router] intent={intent} urls={len(final_urls)} need_pdf={need_pdf}")
-    return {"intent": intent, "intents": matched_intents, "urls": final_urls, "need_pdf": need_pdf}
+    
+    logger.info(f"[router] class={routing_class} intent={intent} urls={len(final_urls)} need_pdf={need_pdf}")
+    return {
+        "intent": intent,
+        "intents": matched_intents,
+        "urls": final_urls,
+        "need_pdf": need_pdf,
+        "routing_class": routing_class
+    }

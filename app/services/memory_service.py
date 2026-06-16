@@ -1,12 +1,52 @@
-"""app/services/memory_service.py — Bộ nhớ hội thoại + xưng hô + guest profile (v3)"""
+"""app/services/memory_service.py — Bộ nhớ hội thoại + xưng hô + SQLite context persistence"""
 import time
+import json
+import sqlite3
 import logging
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger("ufm-chatbot")
 
 SESSION_TTL = 7200  # 2 giờ
 MAX_SESSIONS = 200
+
+# SQLite DB Path cho User Memory
+DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "user_session_memory.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+def _init_db():
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS session_context (
+                session_id TEXT PRIMARY KEY,
+                interested_level TEXT,
+                interested_major TEXT,
+                asked_about TEXT,
+                user_name TEXT,
+                pronoun_role TEXT,
+                guest_profile TEXT,
+                last_active REAL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS session_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT,
+                role TEXT,
+                content TEXT,
+                timestamp REAL
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"[memory] Init database error: {e}")
+
+# Chạy init db
+_init_db()
 
 _sessions: dict[str, dict] = {}
 
@@ -24,10 +64,76 @@ def _new_session(session_id: str) -> dict:
             "asked_about": [],
             "user_name": None,
             "pronoun_role": None,
-            "guest_profile": None,  # Lưu thông tin từ onboarding
+            "guest_profile": None,
         },
     }
 
+def _save_context_to_db(session_id: str, ctx: dict, last_active: float):
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO session_context (session_id, interested_level, interested_major, asked_about, user_name, pronoun_role, guest_profile, last_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                interested_level=excluded.interested_level,
+                interested_major=excluded.interested_major,
+                asked_about=excluded.asked_about,
+                user_name=excluded.user_name,
+                pronoun_role=excluded.pronoun_role,
+                guest_profile=excluded.guest_profile,
+                last_active=excluded.last_active
+        """, (
+            session_id,
+            ctx.get("interested_level"),
+            ctx.get("interested_major"),
+            json.dumps(ctx.get("asked_about") or []),
+            ctx.get("user_name"),
+            json.dumps(ctx.get("pronoun_role")),
+            json.dumps(ctx.get("guest_profile")),
+            last_active
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"[memory] Save context error: {e}")
+
+def _load_session_from_db(session_id: str) -> dict | None:
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute("SELECT interested_level, interested_major, asked_about, user_name, pronoun_role, guest_profile, last_active FROM session_context WHERE session_id = ?", (session_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+            
+        interested_level, interested_major, asked_about_str, user_name, pronoun_role_str, guest_profile_str, last_active = row
+        
+        # Load messages
+        cursor.execute("SELECT role, content, timestamp FROM session_messages WHERE session_id = ? ORDER BY id DESC LIMIT 10", (session_id,))
+        msg_rows = cursor.fetchall()
+        conn.close()
+        
+        messages = [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in reversed(msg_rows)]
+        
+        return {
+            "session_id": session_id,
+            "created_at": last_active,
+            "last_active": last_active,
+            "messages": messages,
+            "context": {
+                "interested_level": interested_level,
+                "interested_major": interested_major,
+                "asked_about": json.loads(asked_about_str) if asked_about_str else [],
+                "user_name": user_name,
+                "pronoun_role": json.loads(pronoun_role_str) if pronoun_role_str else None,
+                "guest_profile": json.loads(guest_profile_str) if guest_profile_str else None,
+            }
+        }
+    except Exception as e:
+        logger.error(f"[memory] Load session error: {e}")
+        return None
 
 # ═══════════════════════════════════
 # HELPER: Lấy tên riêng (chữ cuối)
@@ -40,17 +146,12 @@ def extract_first_name(full_name: str) -> str:
 
 
 # ═══════════════════════════════════
-# PRONOUN DETECTION — Phát hiện xưng hô
+# PRONOUN DETECTION
 # ═══════════════════════════════════
 
 def detect_pronoun_role(query: str) -> dict:
-    """
-    Phân tích câu hỏi để xác định vai vế xưng hô.
-    Return: {"user_calls_self", "co_tham_calls_user", "co_tham_xung"}
-    """
     q = query.lower().strip()
 
-    # User tự xưng "cô", "thầy", "chú", "bác" (Người lớn tuổi, giảng viên)
     senior_patterns = {
         "cô": ["cô đang", "cô muốn", "cô hỏi", "cô cần", "hướng dẫn cô", "cho cô hỏi", "cô quan tâm", "cô tốt nghiệp"],
         "thầy": ["thầy đang", "thầy muốn", "thầy hỏi", "thầy cần", "hướng dẫn thầy", "cho thầy hỏi", "thầy quan tâm", "thầy tốt nghiệp"],
@@ -61,7 +162,6 @@ def detect_pronoun_role(query: str) -> dict:
         if any(p in q for p in patterns) or q.startswith(f"{title} "):
             return {"user_calls_self": title, "co_tham_calls_user": title, "co_tham_xung": "em"}
 
-    # User tự xưng "em" → là học viên → Cô Thắm xưng "cô", gọi "em"
     em_patterns = [
         "em tốt nghiệp", "em đang", "em muốn", "em học", "em làm",
         "em có", "em cần", "em hỏi", "em đã", "em chưa",
@@ -71,7 +171,6 @@ def detect_pronoun_role(query: str) -> dict:
     if any(p in q for p in em_patterns) or q.startswith("em "):
         return {"user_calls_self": "em", "co_tham_calls_user": "em", "co_tham_xung": "cô"}
 
-    # User xưng "anh"
     anh_patterns = [
         "anh muốn", "anh cần", "anh đang", "anh học", "cho anh",
         "anh hỏi", "anh có", "anh đã", "anh ơi", "anh quan tâm",
@@ -80,7 +179,6 @@ def detect_pronoun_role(query: str) -> dict:
     if any(p in q for p in anh_patterns) or q.startswith("anh "):
         return {"user_calls_self": "anh", "co_tham_calls_user": "anh", "co_tham_xung": "em"}
 
-    # User xưng "chị"
     chi_patterns = [
         "chị muốn", "chị cần", "chị đang", "chị học", "cho chị",
         "chị hỏi", "chị có", "chị đã", "chị ơi", "chị quan tâm",
@@ -89,20 +187,16 @@ def detect_pronoun_role(query: str) -> dict:
     if any(p in q for p in chi_patterns) or q.startswith("chị "):
         return {"user_calls_self": "chị", "co_tham_calls_user": "chị", "co_tham_xung": "em"}
 
-    # "tôi" hoặc không rõ → dùng fallback từ tuổi nếu có
     return {"user_calls_self": None, "co_tham_calls_user": "bạn", "co_tham_xung": "em"}
 
 
 def _suggest_pronoun_by_age(birth_year: int) -> dict:
-    """Gợi ý xưng hô dựa theo năm sinh."""
     current_year = datetime.now().year
     age = current_year - birth_year
 
-    if age <= 26:  # sinh viên trẻ
+    if age <= 26:
         return {"co_tham_calls_user": "em", "co_tham_xung": "cô"}
-    elif age <= 41:  # đi làm
-        return {"co_tham_calls_user": "anh/chị", "co_tham_xung": "em"}
-    else:  # người lớn hơn
+    else:
         return {"co_tham_calls_user": "anh/chị", "co_tham_xung": "em"}
 
 
@@ -112,18 +206,41 @@ def _suggest_pronoun_by_age(birth_year: int) -> dict:
 
 def get_or_create_session(session_id: str) -> dict:
     cleanup_expired_sessions()
+    
     if session_id not in _sessions:
-        _sessions[session_id] = _new_session(session_id)
-        logger.info(f"[memory] new session {session_id[:12]}")
+        # Thử load từ SQLite DB trước
+        saved_session = _load_session_from_db(session_id)
+        if saved_session:
+            _sessions[session_id] = saved_session
+            logger.info(f"[memory] loaded session {session_id[:12]} from SQLite DB")
+        else:
+            _sessions[session_id] = _new_session(session_id)
+            logger.info(f"[memory] new session {session_id[:12]}")
+            
     _sessions[session_id]["last_active"] = time.time()
+    
+    # Save/update SQLite DB
+    _save_context_to_db(session_id, _sessions[session_id]["context"], _sessions[session_id]["last_active"])
+    
     return _sessions[session_id]
 
 
 def add_message(session_id: str, role: str, content: str) -> None:
     session = get_or_create_session(session_id)
-    session["messages"].append({"role": role, "content": content, "timestamp": time.time()})
+    now = time.time()
+    session["messages"].append({"role": role, "content": content, "timestamp": now})
     if len(session["messages"]) > 10:
         session["messages"] = session["messages"][-10:]
+        
+    # SQLite save message
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO session_messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)", (session_id, role, content, now))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"[memory] Save message error: {e}")
 
 
 def update_context(session_id: str, intent: str, query: str) -> None:
@@ -131,10 +248,8 @@ def update_context(session_id: str, intent: str, query: str) -> None:
     ctx = session["context"]
     msg = query.lower()
 
-    # Detect pronoun — CHỈ lần đầu, sau đó giữ nhất quán
     if ctx["pronoun_role"] is None:
         pronoun = detect_pronoun_role(query)
-        # Nếu không rõ từ chat → dùng gợi ý từ tuổi
         if pronoun["user_calls_self"] is None and ctx.get("guest_profile"):
             age_suggestion = _suggest_pronoun_by_age(ctx["guest_profile"]["birth_year"])
             pronoun["co_tham_calls_user"] = age_suggestion["co_tham_calls_user"]
@@ -142,13 +257,11 @@ def update_context(session_id: str, intent: str, query: str) -> None:
         ctx["pronoun_role"] = pronoun
         logger.info(f"[memory] pronoun detected: xưng={pronoun['co_tham_xung']}, gọi={pronoun['co_tham_calls_user']}")
 
-    # Detect interest level
     if "thạc sĩ" in msg or "cao học" in msg:
         ctx["interested_level"] = "thac_si"
     if "tiến sĩ" in msg or "phd" in msg:
         ctx["interested_level"] = "tien_si"
 
-    # Detect major
     nganh_map = {
         "tài chính": "Tài chính - Ngân hàng", "ngân hàng": "Tài chính - Ngân hàng",
         "quản trị kinh doanh": "Quản trị kinh doanh", "kế toán": "Kế toán",
@@ -162,29 +275,31 @@ def update_context(session_id: str, intent: str, query: str) -> None:
 
     if intent not in ctx["asked_about"]:
         ctx["asked_about"].append(intent)
+        
+    # Đồng bộ xuống SQLite DB
+    _save_context_to_db(session_id, ctx, session["last_active"])
 
 
 def update_pronoun_early(session_id: str, query: str) -> None:
-    """Gọi sớm trong pipeline để detect pronoun TRƯỚC khi gọi LLM."""
     session = get_or_create_session(session_id)
     ctx = session["context"]
     if ctx["pronoun_role"] is None:
         pronoun = detect_pronoun_role(query)
-        # Fallback theo tuổi nếu có guest profile
         if pronoun["user_calls_self"] is None and ctx.get("guest_profile"):
             age_suggestion = _suggest_pronoun_by_age(ctx["guest_profile"]["birth_year"])
             pronoun["co_tham_calls_user"] = age_suggestion["co_tham_calls_user"]
             pronoun["co_tham_xung"] = age_suggestion["co_tham_xung"]
         ctx["pronoun_role"] = pronoun
         logger.info(f"[memory] early pronoun: xưng={pronoun['co_tham_xung']}, gọi={pronoun['co_tham_calls_user']}")
+        
+        # Đồng bộ xuống SQLite DB
+        _save_context_to_db(session_id, ctx, session["last_active"])
 
 
 def get_search_expansion_keywords(session_id: str, current_query: str) -> str:
-    """Trả về các từ khóa mở rộng tìm kiếm (ví dụ: 'tiến sĩ Quản trị kinh doanh') dựa trên ngữ cảnh."""
     session = get_or_create_session(session_id)
     ctx = session["context"]
     
-    # 1. Tự động detect thêm từ câu hỏi hiện tại để bổ sung ngữ cảnh ngay lập tức
     msg = current_query.lower()
     current_level = None
     if "thạc sĩ" in msg or "cao học" in msg:
@@ -205,7 +320,6 @@ def get_search_expansion_keywords(session_id: str, current_query: str) -> str:
             current_major = name
             break
 
-    # 2. Kết hợp với ngữ cảnh đã lưu trong bộ nhớ
     level = current_level
     if not level and ctx.get("interested_level"):
         level = "thạc sĩ" if ctx["interested_level"] == "thac_si" else "tiến sĩ"
@@ -228,18 +342,15 @@ def get_conversation_history(session_id: str, max_messages: int = 6) -> list[dic
 
 
 def get_context_summary(session_id: str) -> str:
-    """Build context summary bao gồm pronoun_role + guest_profile cho LLM."""
     session = get_or_create_session(session_id)
     ctx = session["context"]
     parts = []
 
-    # Pronoun — QUAN TRỌNG NHẤT, đặt đầu tiên
     pronoun = ctx.get("pronoun_role") or {}
     co_xung = pronoun.get("co_tham_xung", "em")
     co_goi = pronoun.get("co_tham_calls_user", "bạn")
     parts.append(f"[XƯNG HÔ] Cô Thắm xưng là '{co_xung}', gọi người dùng là '{co_goi}'. Phải nhất quán suốt cuộc trò chuyện.")
 
-    # Guest profile info — TÊN + TUỔI
     guest = ctx.get("guest_profile")
     if guest:
         full_name = guest.get("full_name", "")
@@ -271,7 +382,6 @@ def get_context_summary(session_id: str) -> str:
                 edu_text += f" ({edu_detail})"
             parts.append(f"[HỌC VẤN] Trình độ hiện tại: {edu_text}")
 
-        # Giới tính — để xưng hô "anh" hay "chị"
         gender = guest.get("gender") or ctx.get("user_gender", "")
         if gender:
             gender_label = "nam" if gender == "nam" else "nữ"

@@ -38,8 +38,32 @@ function _guessInitialXung() {
   return age <= 26 ? 'cô' : 'em'; // trẻ → cô xưng "cô", lớn tuổi → cô xưng "em"
 }
 
+function cleanContextArtifacts(text) {
+  if (!text) return "";
+  
+  // 1. Technical headers
+  text = text.replace(/\[\s*(?:NGỮ CẢNH PHÁP LÝ|NGỮ CẢNH PHÁP LÝ BỔ SUNG|TÀI LIỆU PHÁP LUẬT BỔ SUNG|TÀI LIỆU PHÁP LUẬT|NGỮ CẢNH HỘI THOẠI|THÔNG TIN NGỮ CẢNH|NỘI DUNG TỪ WEBSITE UFM|TÀI LIỆU WEBSITE UFM|KẾT QUẢ TÌM KIẾM INTERNET)\s*\]/gi, '');
+  
+  // 2. Technical leading boilerplate sentences
+  text = text.replace(/(?:dựa trên|dựa vào|theo|căn cứ vào)\s+(?:ngữ cảnh pháp lý|ngữ cảnh pháp lý bổ sung|tài liệu pháp luật bổ sung|tài liệu pháp luật|tài liệu|context|ngữ cảnh hội thoại|thông tin ngữ cảnh|nội dung từ website ufm|kết quả tìm kiếm internet)(?:\s+(?:được cung cấp|dưới đây|trên|này|chi tiết|bổ sung))*,?\s*/gi, '');
+  
+  // 3. Search placeholders
+  text = text.replace(/\[SEARCH:\s*.*?\]/gi, '');
+  
+  text = text.trim();
+  if (text && text[0] === text[0].toLowerCase()) {
+    text = text[0].toUpperCase() + text.substring(1);
+  }
+  return text;
+}
+
 marked.setOptions({ breaks: true, gfm: true });
-function renderMd(text) { return DOMPurify.sanitize(marked.parse(text), { ADD_ATTR: ['target'] }); }
+function renderMd(text) {
+  if (!text) return '';
+  const cleaned = cleanContextArtifacts(text);
+  const citationText = cleaned.replace(/\[C(\d+)\]/g, '<sup class="citation-sup">[$1]</sup>');
+  return DOMPurify.sanitize(marked.parse(citationText), { ADD_ATTR: ['target'] });
+}
 function now() { return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function scrollBottom() { const a = chatArea(); requestAnimationFrame(() => { a.scrollTop = a.scrollHeight; }); }
@@ -157,13 +181,39 @@ function hideWelcome() { const w = $('.welcome'); if (w) { w.remove(); state.has
 
 function addUserBubble(text) {
   hideWelcome();
-  const html = `<div class="message user"><div class="msg-content"><div class="bubble user-bubble">${esc(text)}</div><div class="msg-time">${now()}</div></div></div>`;
+  const html = `
+    <div class="message user">
+      <div class="msg-content">
+        <div class="bubble user-bubble">
+          <div class="user-message-content">${esc(text)}</div>
+          <div class="message-metadata-footer user-metadata">
+            <span class="metadata-time">${now()}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
   chatArea().insertAdjacentHTML('beforeend', html); scrollBottom();
 }
 
 function addBotBubble() {
   const id = 'bot-' + Date.now();
-  const html = `<div class="message bot" id="${id}"><div class="msg-avatar">👩‍🏫</div><div class="msg-content"><div class="bubble bot-bubble"><div class="bot-message-content"></div></div><div class="msg-time">${now()}</div></div></div>`;
+  const html = `
+    <div class="message bot" id="${id}">
+      <div class="msg-avatar">👩‍🏫</div>
+      <div class="msg-content">
+        <div class="bubble bot-bubble">
+          <div class="message-bot-header">
+            <span class="bot-icon">👩‍🏫</span>
+            <span class="bot-name">Cô giáo Thắm UFM</span>
+          </div>
+          <div class="bot-message-content"></div>
+          <div class="message-metadata-footer" style="display: none;">
+            <span class="metadata-stats"></span>
+            <span class="metadata-time">${now()}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
   chatArea().insertAdjacentHTML('beforeend', html); scrollBottom();
   return document.getElementById(id);
 }
@@ -171,7 +221,20 @@ function addBotBubble() {
 function showTyping() {
   hideTyping();
   const msg = getTypingMessage();
-  const html = `<div class="typing" id="typing-indicator"><div class="msg-avatar">👩‍🏫</div><div class="typing-bubble"><span class="typing-text">${msg}</span><div class="dots"><span></span><span></span><span></span></div></div></div>`;
+  const html = `
+    <div class="typing" id="typing-indicator">
+      <div class="msg-avatar">👩‍🏫</div>
+      <div class="typing-bubble">
+        <div class="message-bot-header">
+          <span class="bot-icon">👩‍🏫</span>
+          <span class="bot-name">Cô giáo Thắm UFM</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="typing-text">${msg}</span>
+          <div class="dots"><span></span><span></span><span></span></div>
+        </div>
+      </div>
+    </div>`;
   chatArea().insertAdjacentHTML('beforeend', html); scrollBottom();
 }
 function hideTyping() { const t = $('#typing-indicator'); if (t) t.remove(); }
@@ -182,10 +245,14 @@ function renderSources(el, sources) {
     if (typeof source === 'object' && source.url) {
       const icon = source.type === 'pdf' ? '📄' : '🔗';
       const title = source.title || 'Xem nguồn';
-      return `<a class="source-chip" href="${esc(source.url)}" target="_blank" rel="noopener noreferrer" title="${esc(source.url)}">${icon} ${esc(title)}</a>`;
+      const isOfficial = source.url.includes('ufm.edu.vn') || source.type === 'database' || source.url.includes('offline_kb');
+      const dot = isOfficial ? '<span class="status-dot-green">🟢</span>' : '<span class="status-dot-gray">⚪</span>';
+      return `<a class="source-chip" href="${esc(source.url)}" target="_blank" rel="noopener noreferrer" title="${esc(source.url)}">${dot} ${icon} ${esc(title)}</a>`;
     }
     const label = source.split('/').pop().substring(0, 30) || 'UFM';
-    return `<a class="source-chip" href="${esc(source)}" target="_blank" title="${esc(source)}">🔗 ${esc(label)}</a>`;
+    const isOfficial = source.includes('ufm.edu.vn') || source.includes('offline_kb');
+    const dot = isOfficial ? '<span class="status-dot-green">🟢</span>' : '<span class="status-dot-gray">⚪</span>';
+    return `<a class="source-chip" href="${esc(source)}" target="_blank" title="${esc(source)}">${dot} 🔗 ${esc(label)}</a>`;
   }).join('');
   const div = document.createElement('div'); div.className = 'sources-row';
   div.innerHTML = `<span class="sources-label">Nguồn tham khảo:</span>${chips}`;
@@ -483,6 +550,17 @@ async function sendMessage(text, autoSpeak = false) {
     if (metadata) {
       renderSources(botEl, metadata.sources);
       renderSuggestions(metadata.suggestions);
+      
+      // Update metadata footer
+      const footer = botEl.querySelector('.message-metadata-footer');
+      if (footer) {
+        const stats = footer.querySelector('.metadata-stats');
+        const latency = metadata.latency ? `⏱️ ${metadata.latency}s` : '';
+        const intent = metadata.intent ? `📂 ${metadata.intent}` : '';
+        stats.textContent = [latency, intent].filter(Boolean).join(' · ');
+        footer.style.display = 'flex';
+      }
+      
       if (metadata.requires_handoff) showHandoffForm();
       if (metadata.action === 'start_enrollment') startEnrollment();
       if (metadata.co_tham_xung) state.coThamXung = metadata.co_tham_xung;
