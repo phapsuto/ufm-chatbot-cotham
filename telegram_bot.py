@@ -71,11 +71,16 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
-def tg_request(method: str, data: dict = None, timeout: float = 30.0) -> dict:
+last_msg_was_voice = {}
+
+def tg_request(method: str, data: dict = None, files: dict = None, timeout: float = 30.0) -> dict:
     """Gọi Telegram Bot API."""
     url = f"{TELEGRAM_API}/{method}"
     try:
-        resp = requests.post(url, json=data, timeout=timeout)
+        if files:
+            resp = requests.post(url, data=data, files=files, timeout=timeout)
+        else:
+            resp = requests.post(url, json=data, timeout=timeout)
         result = resp.json()
         if not result.get("ok"):
             logger.error(f"Telegram API error: {result}")
@@ -83,6 +88,113 @@ def tg_request(method: str, data: dict = None, timeout: float = 30.0) -> dict:
     except Exception as e:
         logger.error(f"Telegram API request failed: {e}")
         return {"ok": False, "error": str(e)}
+
+
+def download_telegram_file(file_path: str) -> bytes:
+    """Tải file âm thanh từ Telegram về bytes."""
+    url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+    resp = requests.get(url, timeout=30)
+    if resp.status_code == 200:
+        return resp.content
+    raise Exception(f"Failed to download file: {resp.status_code} {resp.text}")
+
+
+def transcribe_voice_file(file_bytes: bytes) -> Optional[str]:
+    """Chuyển đổi file âm thanh thoại OGG/OGA thành văn bản qua ASR Whisper của FPT Cloud."""
+    api_key = os.environ.get("FPT_CLOUD_API_KEY")
+    if not api_key:
+        logger.warning("Không tìm thấy FPT_CLOUD_API_KEY trong biến môi trường.")
+        return None
+        
+    url = "https://mkp-api.fptcloud.com/v1/audio/transcriptions"
+    try:
+        files = {
+            "file": ("voice.oga", file_bytes, "audio/ogg")
+        }
+        data = {
+            "model": "whisper-large-v3-turbo",
+            "response_format": "json",
+            "language": "vi"
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}"
+        }
+        resp = requests.post(url, headers=headers, data=data, files=files, timeout=20)
+        if resp.status_code == 200:
+            return resp.json().get("text", "").strip()
+        else:
+            logger.error(f"ASR transcription error {resp.status_code}: {resp.text}")
+            return None
+    except Exception as e:
+        logger.error(f"ASR transcription exception: {e}")
+        return None
+
+
+def md_to_clean_text(text: str) -> str:
+    """Loại bỏ markdown formatting để TTS đọc tự nhiên."""
+    import re
+    clean = re.sub(r'\*\*|__|~~|`{1,3}', '', text)
+    clean = re.sub(r'#{1,6}\s*', '', clean)
+    clean = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', clean)
+    clean = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', clean)
+    clean = re.sub(r'^[\s]*[-*•]\s+', '', clean, flags=re.MULTILINE)
+    clean = re.sub(r'^[\s]*\d+\.\s+', '', clean, flags=re.MULTILINE)
+    clean = re.sub(r'\|[^|]*\|', '', clean)
+    clean = re.sub(r'-{3,}', '', clean)
+    clean = re.sub(r'\n{2,}', '. ', clean)
+    clean = re.sub(r'\s+', ' ', clean)
+    return clean.strip()
+
+
+def synthesize_to_voice(text: str) -> Optional[bytes]:
+    """Tổng hợp văn bản thành giọng nói (WAV) qua FPT Cloud TTS."""
+    api_key = os.environ.get("FPT_CLOUD_API_KEY")
+    if not api_key:
+        return None
+        
+    clean_text = md_to_clean_text(text)
+    if not clean_text or len(clean_text) < 3:
+        return None
+        
+    url = "https://mkp-api.fptcloud.com/v1/audio/speech"
+    try:
+        resp = requests.post(
+            url,
+            json={
+                "model": "FPT.AI-VITs",
+                "input": clean_text,
+                "response_format": "wav",
+                "voice": "std_kimngan",
+            },
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=20
+        )
+        if resp.status_code == 200 and len(resp.content) > 500:
+            return resp.content
+        else:
+            logger.error(f"TTS synthesis error {resp.status_code}: {resp.text}")
+            return None
+    except Exception as e:
+        logger.error(f"TTS synthesis exception: {e}")
+        return None
+
+
+def send_voice(chat_id: int, voice_bytes: bytes, caption: str = None, reply_to: int = None) -> dict:
+    """Gửi file voice note (WAV/MP3) về Telegram."""
+    files = {
+        "voice": ("voice.wav", voice_bytes, "audio/wav")
+    }
+    data = {
+        "chat_id": chat_id
+    }
+    if caption:
+        data["caption"] = caption[:1024]
+    if reply_to:
+        data["reply_to_message_id"] = reply_to
+    return tg_request("sendVoice", data=data, files=files)
 
 
 def md_to_html(text: str) -> str:
@@ -505,7 +617,14 @@ def handle_chat(chat_id: int, user_id: int, text: str, message_id: int):
     if not resp.get("ok"):
         # Thử lại không định dạng
         plain_msg = msg.replace("*", "").replace("_", "").replace("`", "")
-        send_message(chat_id, plain_msg, parse_mode=None, reply_to=message_id)
+        resp = send_message(chat_id, plain_msg, parse_mode=None, reply_to=message_id)
+        
+    # Gửi kèm tin nhắn thoại phản hồi nếu tin nhắn đến là tin nhắn thoại
+    if last_msg_was_voice.get(chat_id):
+        tg_request("sendChatAction", {"chat_id": chat_id, "action": "record_voice"})
+        voice_bytes = synthesize_to_voice(msg)
+        if voice_bytes:
+            send_voice(chat_id, voice_bytes, caption="Giọng đọc Cô giáo Thắm 🎙️", reply_to=message_id)
 
 
 # ══════════════════════════════════════════════════
@@ -709,6 +828,10 @@ def poll_agent_continuous_loop(chat_id: int, stop_event: threading.Event):
                     tool_calls = step.get("tool_calls", [])
                     if content:
                         send_message(chat_id, f"🤖 *IDE Agent:*\n\n{content}")
+                        if last_msg_was_voice.get(chat_id):
+                            voice_bytes = synthesize_to_voice(content)
+                            if voice_bytes:
+                                send_voice(chat_id, voice_bytes, caption="Giọng đọc Cô giáo Thắm 🎙️")
                     if tool_calls:
                         for tc in tool_calls:
                             name = tc.get("name", "tool")
@@ -772,6 +895,10 @@ def poll_agent_response(chat_id: int, conversation_id: str, start_step_index: in
                         
                         if content:
                             send_message(chat_id, f"🤖 *IDE Agent:*\n\n{content}")
+                            if last_msg_was_voice.get(chat_id):
+                                voice_bytes = synthesize_to_voice(content)
+                                if voice_bytes:
+                                    send_voice(chat_id, voice_bytes, caption="Giọng đọc Cô giáo Thắm 🎙️")
                             
                         if tool_calls:
                             for tc in tool_calls:
@@ -917,7 +1044,7 @@ def send_message_to_agent(chat_id: int, command_text: str) -> bool:
 # ══════════════════════════════════════════════════
 
 def process_update(update: dict):
-    """Xử lý một update từ Telegram."""
+    """Xử lý một update từ Telegram (hỗ trợ tin nhắn văn bản và tin nhắn thoại)."""
     msg = update.get("message")
     if not msg:
         return
@@ -925,11 +1052,7 @@ def process_update(update: dict):
     chat_id = msg["chat"]["id"]
     user_id = msg["from"]["id"]
     user_name = msg["from"].get("first_name", "User")
-    text = msg.get("text", "").strip()
     message_id = msg["message_id"]
-    
-    if not text:
-        return
     
     # Access control
     if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
@@ -940,6 +1063,44 @@ def process_update(update: dict):
     if not check_rate_limit(user_id):
         send_message(chat_id, "⏳ Bạn gửi tin nhắn quá nhanh. Vui lòng đợi một lát.")
         return
+
+    text = ""
+    is_voice = False
+    
+    if "voice" in msg:
+        is_voice = True
+        voice_info = msg["voice"]
+        file_id = voice_info["file_id"]
+        
+        tg_request("sendChatAction", {"chat_id": chat_id, "action": "record_voice"})
+        
+        res = tg_request("getFile", {"file_id": file_id})
+        if res.get("ok"):
+            file_path = res["result"]["file_path"]
+            try:
+                voice_bytes = download_telegram_file(file_path)
+                transcribed_text = transcribe_voice_file(voice_bytes)
+                if transcribed_text:
+                    text = transcribed_text
+                    logger.info(f"[{user_id}] Nhận tin nhắn thoại: {text}")
+                else:
+                    send_message(chat_id, "⚠️ Cô giáo Thắm chưa nghe rõ tin nhắn thoại của em. Em nói rõ hơn hoặc gõ chữ nhé! 🎤")
+                    return
+            except Exception as e:
+                logger.error(f"Failed to process voice note: {e}")
+                send_message(chat_id, "❌ Lỗi hệ thống khi xử lý tin nhắn thoại của em. Hãy thử lại sau nhé.")
+                return
+        else:
+            send_message(chat_id, "❌ Không thể tải tin nhắn thoại từ máy chủ Telegram.")
+            return
+    else:
+        text = msg.get("text", "").strip()
+        
+    if not text:
+        return
+        
+    # Lưu trạng thái loại tin nhắn cuối cùng để phản hồi tương ứng
+    last_msg_was_voice[chat_id] = is_voice
     
     logger.info(f"[{user_id}] @{msg['from'].get('username', 'N/A')}: {text[:100]}")
     
@@ -960,7 +1121,7 @@ def process_update(update: dict):
         if is_sync_enabled(chat_id):
             if chat_id not in last_sent_from_telegram:
                 last_sent_from_telegram[chat_id] = []
-            last_sent_from_telegram[chat_id].append(text)
+            last_sent_from_telegram[chat_id] = [text]  # Reset list to only keep the latest
             send_message_to_agent(chat_id, text)
         else:
             # Chat học tập trực tiếp với Cô giáo Thắm

@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routes import chat, health, handoff, guest, enrollment, crm
+from app.routes import chat, health, handoff, guest, enrollment, crm, voice
 from app.services import cache_service, memory_service, kb_service
 from app.services.reranker_service import init_bge_reranker
 
@@ -49,6 +49,7 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(chat.router)
+app.include_router(voice.router)
 app.include_router(health.router)
 app.include_router(handoff.router)
 app.include_router(guest.router, prefix="/api")
